@@ -62,3 +62,21 @@
   background: none;
   font-size: 0.9em;
 }
+
+
+
+.suggestion {
+  cursor: pointer;
+}
+.suggestion-spelling {
+  text-decoration-line: underline;
+  text-decoration-color: #ef4444; /* red-500 */
+  text-decoration-style: wavy;
+}
+.suggestion-grammar {
+  background-color: rgba(59, 130, 246, 0.1); /* blue-500 with opacity */
+  border-bottom: 2px solid #3b82f6; /* blue-500 */
+}
+.suggestion-style {
+  border-bottom: 2px dashed #10b981; /* emerald-500 */
+}

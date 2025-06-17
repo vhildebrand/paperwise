@@ -1,5 +1,5 @@
 // pages/Editor.tsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabaseClient';
@@ -7,11 +7,13 @@ import type { Database } from '../types/supabase';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
-// import { SpellCheckExtension } from '../lib/spellCheckExtension';
 
 import { IconSaveStatus } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
 import './Editor.css';
+
+import { AnalysisExtension } from '../lib/AnalysisExtension';
+import SuggestionPopup from '../components/SuggestionPopup';
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
@@ -27,6 +29,16 @@ function debounce<T extends (...args: any[]) => any>(
   };
 }
 
+
+type AnalysisSuggestion = {
+  type: 'spelling' | 'grammar' | 'style';
+  originalText: string;
+  suggestion: string;
+  explanation: string;
+  startIndex: number;
+  endIndex: number;
+};
+
 const Editor: React.FC = () => {
   const { user } = useAuthStore();
   const { documentId } = useParams<{ documentId: string }>();
@@ -37,6 +49,10 @@ const Editor: React.FC = () => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
+  const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
+  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
+
+  const [activeSuggestion, setActiveSuggestion] = useState<{data: any, rect: DOMRect} | null>(null);
 
   // --- Debounced Save Function ---
   const debouncedSave = useCallback(
@@ -59,30 +75,96 @@ const Editor: React.FC = () => {
     [documentId]
   );
 
+  // --- Debounced Analysis Function ---
+  const debouncedAnalysis = useCallback(
+    debounce(async (text: string) => {
+      console.log('Analysis triggered with text length:', text.length);
+      if (!text.trim() || text.length < 20) { // Avoid analyzing very short texts
+        console.log('Text too short, skipping analysis');
+        setSuggestions([]);
+        return;
+      };
+      console.log('Starting analysis...');
+      setAnalysisStatus('analyzing');
+      try {
+        console.log('Calling Supabase function...');
+        const { data, error } = await supabase.functions.invoke('analyze', {
+          body: { text },
+        });
+
+        if (error) throw error;
+
+        console.log('Analysis result:', data);
+        setSuggestions(data);
+        setAnalysisStatus('complete');
+      } catch (error) {
+        console.error('Error analyzing document:', error);
+        setAnalysisStatus('idle'); // or 'error'
+      }
+    }, 2000), // 2-second debounce after user stops typing
+    []
+  );
+
+
+  const handleSuggestionClick = (suggestion: any, element: HTMLElement) => {
+      const rect = element.getBoundingClientRect();
+      setActiveSuggestion({ data: suggestion, rect });
+  };
+
+  const handleAcceptSuggestion = () => {
+      if (!editor || !activeSuggestion) return;
+      const { startIndex, endIndex, suggestion } = activeSuggestion.data;
+
+      // Apply the change to the editor
+      editor.chain().focus()
+        .insertContentAt({ from: startIndex + 1, to: endIndex + 1 }, suggestion)
+        .run();
+
+      // Remove this suggestion from the list
+      setSuggestions(current => current.filter(s => s.startIndex !== startIndex));
+      setActiveSuggestion(null);
+  };
+
+  const handleDismissSuggestion = () => {
+      if (!activeSuggestion) return;
+      // Just remove it from the list for this session
+      setSuggestions(current => current.filter(s => s.startIndex !== activeSuggestion.data.startIndex));
+      setActiveSuggestion(null);
+  };
+
+  // --- TipTap Editor Instance ---
+  // Wrap extensions in useMemo to reconfigure when suggestions change
+  const editorExtensions = useMemo(() => [
+    StarterKit.configure({ 
+      history: false,
+      heading: {
+          levels: [1, 2, 3],
+      }
+    }),
+    Underline,
+    AnalysisExtension.configure({
+        suggestions,
+        onSuggestionClick: handleSuggestionClick,
+    }),
+  ], [suggestions]); // Dependency array is key!
+
   // --- TipTap Editor Instance ---
   const editor = useEditor({
-    extensions: [
-      StarterKit.configure({
-        // The collaboration extensions are not used in this setup
-        history: false,
-        heading: {
-            levels: [1, 2, 3],
-        }
-      }),
-      Underline,
-      // SpellCheckExtension, // Temporarily disabled to fix typing issue
-    ],
+    extensions: editorExtensions,
     content: '',
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
+      const text = editor.getText();
       debouncedSave(html);
+      debouncedAnalysis(text); // Analyze the text for spelling and grammar errors, need to play with debounce time
     },
     editorProps: {
       attributes: {
         class: 'prose prose-lg focus:outline-none max-w-full',
+        spellcheck: 'false', // Disable browser spell check
       },
     },
-  });
+  }, [editorExtensions]); // Add editorExtensions as dependency
 
   // --- Data Fetching and Content Loading Effect ---
   useEffect(() => {
@@ -116,6 +198,11 @@ const Editor: React.FC = () => {
     };
     fetchDocument();
   }, [documentId, navigate, user, editor]);
+
+  // Debug effect to log suggestions changes
+  useEffect(() => {
+    console.log('Suggestions updated:', suggestions);
+  }, [suggestions]);
   
   // --- Title Update Function ---
   const updateTitle = async () => {
@@ -140,7 +227,7 @@ const Editor: React.FC = () => {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50 font-sans">
+    <div className="h-screen flex flex-col bg-gray-50 font-sans" onClick={() => activeSuggestion && setActiveSuggestion(null)}>
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 shrink-0">
         {/* Header content remains the same */}
         <div className="flex items-center justify-between">
@@ -176,7 +263,18 @@ const Editor: React.FC = () => {
       
       <EditorToolbar editor={editor} />
 
-      <main className="flex-1 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto relative">
+          {activeSuggestion && (
+            <SuggestionPopup
+              suggestion={activeSuggestion.data}
+              onAccept={handleAcceptSuggestion}
+              onDismiss={handleDismissSuggestion}
+              style={{ 
+                  top: activeSuggestion.rect.bottom + window.scrollY + 5, 
+                  left: activeSuggestion.rect.left + window.scrollX 
+              }}
+            />
+          )}
         <div className="max-w-4xl mx-auto p-4 sm:p-8 md:p-12">
             <EditorContent editor={editor} />
         </div>

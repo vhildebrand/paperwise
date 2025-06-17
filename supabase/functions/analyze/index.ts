@@ -1,18 +1,17 @@
 // supabase/functions/analyze/index.ts
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 const corsHeaders = {
-    "Access-Control-Allow-Origin": "https://paperwise-five.vercel.app",
+    "Access-Control-Allow-Origin": "*", // Allow all origins for development
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "authorization, content-type, apikey, supabase-auth-token",
+      "authorization, content-type, apikey, supabase-auth-token, x-client-info",
   };
 
 // Grab the OpenAI API key from the environment variables
 const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
 if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY not set in Vault");
 
-
-// Define the structure we expect from the AI
+// The interface definition remains the same, used for type safety
 interface Suggestion {
   type: 'spelling' | 'grammar' | 'style';
   originalText: string;
@@ -23,7 +22,6 @@ interface Suggestion {
 }
 
 serve(async (req) => {
-  // This is needed for the browser to call the function
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -34,36 +32,19 @@ serve(async (req) => {
       throw new Error('No text provided');
     }
 
-    const prompt = `
-      You are an expert editor. Analyze the following text for spelling mistakes, grammar errors, and style improvements.
-      For each issue you find, provide the original text, a suggested replacement, a brief explanation, the type of error (spelling, grammar, or style), and the start and end character indices of the original text.
-      Your response MUST be a valid JSON array of objects. Do not include any other text or formatting. If there are no errors, return an empty array [].
+    // The prompt is now much simpler.
+    // The complex formatting instructions are handled by the 'tools' parameter.
+    const user_prompt = `
+      Analyze the following text for spelling mistakes, grammar errors, and style improvements.
+      Identify all issues and report them. If there are no errors, report that as well.
 
-      Example Response Format:
-      [
-        {
-          "type": "spelling",
-          "originalText": "recieve",
-          "suggestion": "receive",
-          "explanation": "Common spelling mistake.",
-          "startIndex": 10,
-          "endIndex": 17
-        },
-        {
-          "type": "grammar",
-          "originalText": "less documents",
-          "suggestion": "fewer documents",
-          "explanation": "'Fewer' is used for countable nouns like documents.",
-          "startIndex": 50,
-          "endIndex": 64
-        }
-      ]
-
-      Here is the text to analyze:
+      Text to analyze:
       ---
       ${text}
       ---
     `;
+
+    // --- START: MODIFIED OPENAI API CALL ---
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -72,10 +53,62 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4.1-nano', // Use a model that supports JSON mode
-        messages: [{ role: 'user', content: prompt }],
-        response_format: { type: 'json_object' }, // Enforce JSON output
-        temperature: 0.2,
+        model: 'gpt-4o-mini',
+        messages: [{ role: 'user', content: user_prompt }],
+        temperature: 0.1,
+        // Define the structured output format using the 'tools' parameter
+        tools: [
+          {
+            type: 'function',
+            function: {
+              name: 'report_analysis_results',
+              description: 'Reports the analysis of a given text.',
+              parameters: {
+                type: 'object',
+                properties: {
+                  suggestions: {
+                    type: 'array',
+                    description: 'A list of suggestions for the text.',
+                    items: {
+                      type: 'object',
+                      properties: {
+                        type: {
+                          type: 'string',
+                          enum: ['spelling', 'grammar', 'style'],
+                          description: 'The type of issue found.',
+                        },
+                        originalText: {
+                          type: 'string',
+                          description: 'The exact text segment with the issue.',
+                        },
+                        suggestion: {
+                          type: 'string',
+                          description: 'The suggested replacement text.',
+                        },
+                        explanation: {
+                          type: 'string',
+                          description: 'A brief explanation of the suggestion.',
+                        },
+                        startIndex: {
+                          type: 'number',
+                          description: 'The starting character index of the original text.',
+                        },
+                        endIndex: {
+                          type: 'number',
+                          description: 'The ending character index of the original text.',
+                        },
+                      },
+                      required: ['type', 'originalText', 'suggestion', 'explanation', 'startIndex', 'endIndex'],
+                    },
+                  },
+                },
+                required: ['suggestions'],
+              },
+            },
+          },
+        ],
+        // Force the model to use our defined tool
+        tool_choice: { "type": "function", "function": { "name": "report_analysis_results" } },
       }),
     })
 
@@ -85,12 +118,17 @@ serve(async (req) => {
     }
 
     const gptResponse = await response.json();
-    // The actual suggestions are likely nested. Inspect the response structure.
-    // It's common for the JSON to be a string inside a 'content' field.
-    const content = JSON.parse(gptResponse.choices[0].message.content);
+    const toolCall = gptResponse.choices[0].message.tool_calls[0];
+
+    let suggestions: Suggestion[] = [];
+
+    // The structured data is in the 'arguments' of the tool call
+    if (toolCall && toolCall.function.name === 'report_analysis_results') {
+      const toolArgs = JSON.parse(toolCall.function.arguments);
+      suggestions = toolArgs.suggestions || [];
+    }
     
-    // Assuming the AI correctly puts the array inside a root key like "suggestions" or directly as the root.
-    const suggestions: Suggestion[] = content.suggestions || content;
+    // --- END: MODIFIED OPENAI API CALL ---
 
     return new Response(JSON.stringify(suggestions), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
