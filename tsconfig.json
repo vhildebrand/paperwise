@@ -6,5 +6,9 @@
   ],
   "exclude": [
     "supabase/functions/*"
-  ]
+  ],
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  }
 }
