@@ -12,9 +12,9 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await signUp(email, password, name);
-    if (!error) {
-      navigate('/');
+    const success = await signUp(email, password, name);
+    if (success) {
+      navigate('/dashboard'); // Changed from '/' to '/dashboard'
     }
   };
 
@@ -69,4 +69,4 @@ const Signup: React.FC = () => {
   );
 };
 
-export default Signup; 
+export default Signup;

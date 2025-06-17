@@ -12,9 +12,7 @@ const Login: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     await signIn(email, password);
-    if (!error) {
-      navigate('/');
-    }
+    navigate('/dashboard'); // Changed from '/' to '/dashboard'
   };
 
   return (
@@ -23,7 +21,7 @@ const Login: React.FC = () => {
         <div className="text-center mb-8">
             <IconFile className="mx-auto h-12 w-auto text-indigo-600" />
             <h2 className="mt-6 text-3xl font-bold tracking-tight text-gray-900">
-                Sign in to Paperwise
+                Sign in to ClarityWrite
             </h2>
             <p className="mt-2 text-sm text-gray-600">
                 Or{' '}
@@ -80,4 +78,4 @@ const Login: React.FC = () => {
   );
 };
 
-export default Login; 
+export default Login;

@@ -138,3 +138,33 @@ export const IconCode = ({ className = 'w-5 h-5' }) => (
     <polyline points="8 6 2 12 8 18" />
   </svg>
 );
+
+
+export const IconArrowLeft = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none"
+       viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5" />
+    <path d="M12 19L5 12 12 5" />
+  </svg>
+);
+
+export const IconFeather = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none"
+       viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+    <line x1="16" x2="2" y1="8" y2="22" />
+    <line x1="17.5" x2="17.5" y1="15" y2="15" />
+  </svg>
+);
+
+export const IconShieldCheck = ({ className = 'w-5 h-5' }) => (
+  <svg className={className} xmlns="http://www.w3.org/2000/svg" fill="none"
+       viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 12l2 2 4-4" />
+    <path d="M12 12v9" />
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+  </svg>
+);

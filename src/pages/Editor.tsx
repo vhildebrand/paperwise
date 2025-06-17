@@ -9,7 +9,7 @@ import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 
-import { IconSaveStatus } from '../assets/Icons';
+import { IconSaveStatus, IconArrowLeft } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
 import SuggestionsSidebar from '../components/SuggestionsSidebar';
 import InlineCard from '../components/InlineCard';
@@ -48,7 +48,7 @@ const Editor: React.FC = () => {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
-  
+
   const editorRef = useRef<HTMLDivElement>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
@@ -59,12 +59,12 @@ const Editor: React.FC = () => {
     try {
       const { error } = await supabase
         .from('documents')
-        .update({ 
-          content, 
-          updated_at: new Date().toISOString() 
+        .update({
+          content,
+          updated_at: new Date().toISOString()
         })
         .eq('id', documentId);
-      
+
       if (error) throw error;
       setSaveStatus('saved');
       setLastSaveTime(new Date());
@@ -82,11 +82,11 @@ const Editor: React.FC = () => {
     }
     setAnalysisStatus('analyzing');
     try {
-      const { data, error } = await supabase.functions.invoke('analyze', { 
-        body: { 
+      const { data, error } = await supabase.functions.invoke('analyze', {
+        body: {
           text,
           tone: selectedTone // Pass selected tone to influence analysis
-        } 
+        }
       });
       if (error) throw error;
       console.log('Analysis results:', data); // Debug log
@@ -100,7 +100,7 @@ const Editor: React.FC = () => {
 
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({ 
+      StarterKit.configure({
         history: false,
         heading: { levels: [1, 2, 3] }
       }),
@@ -129,17 +129,17 @@ const Editor: React.FC = () => {
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const text = editor.getText();
-      
+
       // Clear existing autosave timeout
       if (autosaveTimeoutRef.current) {
         clearTimeout(autosaveTimeoutRef.current);
       }
-      
+
       // Set new autosave timeout (5 seconds)
       autosaveTimeoutRef.current = setTimeout(() => {
         debouncedSave(html);
       }, 5000);
-      
+
       debouncedAnalysis(text);
     },
     onBlur: ({ editor }) => {
@@ -158,7 +158,7 @@ const Editor: React.FC = () => {
   // Update analysis extension options when suggestions or selected suggestion changes
   useEffect(() => {
     if (!editor) return;
-    
+
     const analysisExtension = editor.extensionManager.extensions.find(ext => ext.name === 'analysis');
     if (analysisExtension) {
       analysisExtension.options.suggestions = suggestions;
@@ -177,7 +177,7 @@ const Editor: React.FC = () => {
     let from = 0;
     let to = 0;
     let charCount = 0;
-    
+
     doc.descendants((node, nodePos) => {
       if (node.isText) {
         const nodeLength = node.text?.length || 0;
@@ -203,7 +203,7 @@ const Editor: React.FC = () => {
 
     // Adjust indices of subsequent suggestions
     const lengthDifference = suggestion.length - originalText.length;
-    
+
     setSuggestions(current => {
         return current
             .filter(s => s.startIndex !== suggestionToAccept.startIndex)
@@ -230,18 +230,18 @@ const Editor: React.FC = () => {
 
   const handleNavigateSuggestions = (direction: 'prev' | 'next') => {
     if (!suggestions.length) return;
-    
-    const currentIndex = selectedSuggestion 
+
+    const currentIndex = selectedSuggestion
       ? suggestions.findIndex(s => s.startIndex === selectedSuggestion.startIndex)
       : -1;
-    
+
     let newIndex: number;
     if (direction === 'prev') {
       newIndex = currentIndex <= 0 ? suggestions.length - 1 : currentIndex - 1;
     } else {
       newIndex = currentIndex >= suggestions.length - 1 ? 0 : currentIndex + 1;
     }
-    
+
     setSelectedSuggestion(suggestions[newIndex]);
   };
 
@@ -287,7 +287,7 @@ const Editor: React.FC = () => {
           .select('*')
           .eq('id', documentId)
           .single();
-        
+
         if (error) throw error;
         if (data) {
           setDocumentData(data);
@@ -303,7 +303,7 @@ const Editor: React.FC = () => {
       } catch (error) {
         console.error('Error fetching document:', error);
         alert('Could not load the document.');
-        navigate('/');
+        navigate('/dashboard');
       } finally {
         setLoading(false);
       }
@@ -317,12 +317,12 @@ const Editor: React.FC = () => {
     try {
       const { error } = await supabase
         .from('documents')
-        .update({ 
-          title: editedTitle.trim(), 
-          updated_at: new Date().toISOString() 
+        .update({
+          title: editedTitle.trim(),
+          updated_at: new Date().toISOString()
         })
         .eq('id', documentId);
-      
+
       if (error) throw error;
       setDocumentData(prev => prev ? { ...prev, title: editedTitle.trim() } : null);
       setIsEditingTitle(false);
@@ -349,7 +349,7 @@ const Editor: React.FC = () => {
       </div>
     </div>
   );
-  
+
   if (!documentData) return (
     <div className="flex items-center justify-center h-screen">
       <p className="text-gray-600">Document not found.</p>
@@ -375,15 +375,22 @@ const Editor: React.FC = () => {
             <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4">
               <div className='max-w-4xl mx-auto flex items-center justify-between'>
                 <div className="flex items-center space-x-4">
+                  <button 
+                    onClick={() => navigate('/dashboard')} 
+                    className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+                    title="Back to Dashboard"
+                  >
+                    <IconArrowLeft className="w-5 h-5 text-gray-600" />
+                  </button>
                   {isEditingTitle ? (
-                    <input 
-                      type="text" 
-                      value={editedTitle} 
-                      onChange={handleTitleChange} 
-                      onBlur={updateTitle} 
-                      onKeyDown={handleTitleKeyDown} 
-                      className="text-2xl font-bold p-1 -m-1 border-b-2 border-blue-500 outline-none" 
-                      autoFocus 
+                    <input
+                      type="text"
+                      value={editedTitle}
+                      onChange={handleTitleChange}
+                      onBlur={updateTitle}
+                      onKeyDown={handleTitleKeyDown}
+                      className="text-2xl font-bold p-1 -m-1 border-b-2 border-blue-500 outline-none"
+                      autoFocus
                     />
                   ) : (
                     <h1 onClick={handleTitleClick} className="text-2xl font-bold cursor-pointer hover:text-blue-600 transition-colors">
@@ -407,8 +414,8 @@ const Editor: React.FC = () => {
 
             {/* Toolbar */}
             {editor && (
-              <EditorToolbar 
-                editor={editor} 
+              <EditorToolbar
+                editor={editor}
                 analysisStatus={analysisStatus}
                 selectedTone={selectedTone}
                 onToneChange={setSelectedTone}

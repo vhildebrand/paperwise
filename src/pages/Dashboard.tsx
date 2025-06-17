@@ -50,10 +50,10 @@ const Dashboard: React.FC = () => {
     try {
       const { data, error } = await supabase
         .from('documents')
-        .insert({ 
-          user_id: user.id, 
-          title: newDocTitle.trim(), 
-          content: '' 
+        .insert({
+          user_id: user.id,
+          title: newDocTitle.trim(),
+          content: ''
         })
         .select()
         .single();
@@ -76,7 +76,7 @@ const Dashboard: React.FC = () => {
   const deleteDocument = async (docId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent navigation when clicking delete
     if (!confirm('Are you sure you want to delete this document?')) return;
-    
+
     try {
       const { error } = await supabase
         .from('documents')
@@ -84,7 +84,7 @@ const Dashboard: React.FC = () => {
         .eq('id', docId);
 
       if (error) throw error;
-      
+
       setDocuments(documents.filter(doc => doc.id !== docId));
     } catch (error) {
       console.error('Error deleting document:', error);
