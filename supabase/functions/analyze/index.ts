@@ -72,7 +72,7 @@ serve(async (req) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-3.5-turbo-0125', // Use a model that supports JSON mode
+        model: 'gpt-4.1-nano', // Use a model that supports JSON mode
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' }, // Enforce JSON output
         temperature: 0.2,
