@@ -39,6 +39,32 @@ export const IconListOrdered = ({ className = 'w-5 h-5' }) => (
       <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="10" x2="21" y1="6" y2="6"/><line x1="10" x2="21" y1="12" y2="12"/><line x1="10" x2="21" y1="18" y2="18"/><path d="M4 6h1v4"/><path d="M4 10h2"/><path d="m2.5 16.5 1.5 1.5 1.5-1.5"/></svg>
   );
 
+  export const IconSparkles = ({ className = 'w-5 h-5' }) => (
+    <svg
+      className={className}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M5 3v4" />
+      <path d="M3 5h4" />
+      <path d="M17 3v4" />
+      <path d="M15 5h4" />
+      <path d="M11 13v2" />
+      <path d="M10 14h2" />
+      <path d="M20 20h.01" />
+      <path d="M20 16h.01" />
+      <path d="M16 20h.01" />
+      <path d="M16 16h.01" />
+    </svg>
+  );
+
 export const IconSaveStatus = ({ status }: { status: 'saving' | 'saved' | 'error' }) => {
     switch (status) {
         case 'saving':
