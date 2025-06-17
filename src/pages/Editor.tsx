@@ -89,6 +89,7 @@ const Editor: React.FC = () => {
         } 
       });
       if (error) throw error;
+      console.log('Analysis results:', data); // Debug log
       setSuggestions(data || []);
       setAnalysisStatus('complete');
     } catch (error) {
@@ -121,7 +122,7 @@ const Editor: React.FC = () => {
               });
             }
           },
-          selectedSuggestion: selectedSuggestion,
+          selectedSuggestion: null,
       }),
     ],
     content: '',
@@ -154,49 +155,53 @@ const Editor: React.FC = () => {
     },
   });
 
-  // Update editor extensions when suggestions or selected suggestion changes
+  // Update analysis extension options when suggestions or selected suggestion changes
   useEffect(() => {
     if (!editor) return;
-    editor.setOptions({
-        extensions: [
-            StarterKit.configure({ 
-                history: false,
-                heading: { levels: [1, 2, 3] }
-            }),
-            Underline,
-            AnalysisExtension.configure({
-                suggestions,
-                onSuggestionClick: (suggestion, element) => {
-                  setSelectedSuggestion(suggestion);
-                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                },
-                onSuggestionHover: (suggestion, element) => {
-                  setHoveredSuggestion(suggestion);
-                  if (element && suggestion) {
-                    const rect = element.getBoundingClientRect();
-                    setHoverPosition({
-                      x: rect.left + rect.width / 2,
-                      y: rect.top
-                    });
-                  }
-                },
-                selectedSuggestion,
-            }),
-        ]
-    });
-  }, [suggestions, editor, selectedSuggestion]);
+    
+    const analysisExtension = editor.extensionManager.extensions.find(ext => ext.name === 'analysis');
+    if (analysisExtension) {
+      analysisExtension.options.suggestions = suggestions;
+      analysisExtension.options.selectedSuggestion = selectedSuggestion;
+      // Force a re-render of the decorations
+      editor.view.dispatch(editor.view.state.tr);
+    }
+  }, [suggestions, selectedSuggestion, editor]);
 
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
     const { startIndex, endIndex, suggestion, originalText } = suggestionToAccept;
 
-    // This uses the correct ProseMirror positions, which are 1-based.
-    editor.chain().focus()
-      .setTextSelection({ from: startIndex + 1, to: endIndex + 1 })
-      .insertContent(suggestion)
-      .run();
+    // Convert character indices to ProseMirror positions
+    const doc = editor.state.doc;
+    let from = 0;
+    let to = 0;
+    let charCount = 0;
+    
+    doc.descendants((node, nodePos) => {
+      if (node.isText) {
+        const nodeLength = node.text?.length || 0;
+        if (charCount <= startIndex && startIndex < charCount + nodeLength && from === 0) {
+          from = nodePos + (startIndex - charCount);
+        }
+        if (charCount <= endIndex && endIndex < charCount + nodeLength && to === 0) {
+          to = nodePos + (endIndex - charCount);
+          return false; // Stop traversal
+        }
+        charCount += nodeLength;
+      }
+      return true;
+    });
 
-    // Adjust indices of subsequent suggestions.
+    // Apply the suggestion using ProseMirror positions
+    if (from >= 0 && to > from && to <= doc.content.size) {
+      editor.chain().focus()
+        .setTextSelection({ from, to })
+        .insertContent(suggestion)
+        .run();
+    }
+
+    // Adjust indices of subsequent suggestions
     const lengthDifference = suggestion.length - originalText.length;
     
     setSuggestions(current => {
@@ -244,6 +249,30 @@ const Editor: React.FC = () => {
     // This would integrate with your AI rewrite functionality
     console.log('AI Rewrite triggered with tone:', selectedTone);
     // You can implement the actual AI rewrite logic here
+  };
+
+  // Debug function to test suggestions
+  const addTestSuggestions = () => {
+    const testSuggestions: AnalysisSuggestion[] = [
+      {
+        type: 'spelling',
+        originalText: 'test',
+        suggestion: 'testing',
+        explanation: 'This is a test spelling suggestion',
+        startIndex: 0,
+        endIndex: 4
+      },
+      {
+        type: 'grammar',
+        originalText: 'is',
+        suggestion: 'are',
+        explanation: 'This is a test grammar suggestion',
+        startIndex: 5,
+        endIndex: 7
+      }
+    ];
+    console.log('Adding test suggestions:', testSuggestions);
+    setSuggestions(testSuggestions);
   };
 
   // Load document on mount
@@ -384,6 +413,7 @@ const Editor: React.FC = () => {
                 selectedTone={selectedTone}
                 onToneChange={setSelectedTone}
                 onAIRewrite={handleAIRewrite}
+                onTestSuggestions={addTestSuggestions}
               />
             )}
 

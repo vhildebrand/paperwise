@@ -13,7 +13,7 @@ if (!OPENAI_API_KEY) console.warn("OPENAI_API_KEY not set in Vault");
 
 // The interface definition remains the same, used for type safety
 interface Suggestion {
-  type: 'spelling' | 'grammar' | 'style';
+  type: 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
   originalText: string;
   suggestion: string;
   explanation: string;
@@ -26,8 +26,6 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
-
-
   try {
     // The key is accessed from environment variables, which Vercel and Supabase both set.
     const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
@@ -35,24 +33,31 @@ serve(async (req) => {
       throw new Error("Missing OPENAI_API_KEY environment variable.");
     }
 
-    const { text } = await req.json()
+    const { text, tone } = await req.json()
     if (!text) {
       throw new Error('No text provided');
     }
 
-    // The prompt is now much simpler.
-    // The complex formatting instructions are handled by the 'tools' parameter.
+    // Enhanced prompt to include all suggestion types
     const user_prompt = `
-      Analyze the following text for spelling mistakes, grammar errors, and style improvements.
-      Identify all issues and report them. If there are no errors, report that as well.
+      Analyze the following text for writing improvements. Look for:
+      1. Spelling mistakes (type: 'spelling')
+      2. Grammar errors (type: 'grammar') 
+      3. Style improvements (type: 'style')
+      4. Clarity issues (type: 'clarity')
+      5. Tone adjustments (type: 'tone') - consider the target tone: ${tone || 'neutral'}
+
+      For each issue found, provide:
+      - The exact text segment with the issue
+      - A suggested replacement
+      - A brief explanation
+      - Precise character start and end indices
 
       Text to analyze:
       ---
       ${text}
       ---
     `;
-
-    // --- START: MODIFIED OPENAI API CALL ---
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -64,7 +69,6 @@ serve(async (req) => {
         model: 'gpt-4o-mini',
         messages: [{ role: 'user', content: user_prompt }],
         temperature: 0.1,
-        // Define the structured output format using the 'tools' parameter
         tools: [
           {
             type: 'function',
@@ -82,7 +86,7 @@ serve(async (req) => {
                       properties: {
                         type: {
                           type: 'string',
-                          enum: ['spelling', 'grammar', 'style'],
+                          enum: ['spelling', 'grammar', 'style', 'clarity', 'tone'],
                           description: 'The type of issue found.',
                         },
                         originalText: {
@@ -115,7 +119,6 @@ serve(async (req) => {
             },
           },
         ],
-        // Force the model to use our defined tool
         tool_choice: { "type": "function", "function": { "name": "report_analysis_results" } },
       }),
     })
@@ -130,13 +133,10 @@ serve(async (req) => {
 
     let suggestions: Suggestion[] = [];
 
-    // The structured data is in the 'arguments' of the tool call
     if (toolCall && toolCall.function.name === 'report_analysis_results') {
       const toolArgs = JSON.parse(toolCall.function.arguments);
       suggestions = toolArgs.suggestions || [];
     }
-    
-    // --- END: MODIFIED OPENAI API CALL ---
 
     return new Response(JSON.stringify(suggestions), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },

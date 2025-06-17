@@ -14,6 +14,7 @@ interface Props {
   selectedTone: string;
   onToneChange: (tone: string) => void;
   onAIRewrite: () => void;
+  onTestSuggestions?: () => void;
 }
 
 const ToolbarButton = ({ onClick, disabled, title, isActive, children, className = "" }: any) => (
@@ -155,7 +156,8 @@ const EditorToolbar: React.FC<Props> = ({
   analysisStatus, 
   selectedTone, 
   onToneChange, 
-  onAIRewrite 
+  onAIRewrite,
+  onTestSuggestions
 }) => {
   const [showAIRewriteModal, setShowAIRewriteModal] = useState(false);
 
@@ -261,6 +263,20 @@ const EditorToolbar: React.FC<Props> = ({
                 <IconCode />
               </ToolbarButton>
             </div>
+
+            {/* Test button for debugging */}
+            {onTestSuggestions && (
+              <>
+                <Divider />
+                <ToolbarButton
+                  onClick={onTestSuggestions}
+                  title="Test Suggestions (Debug)"
+                  className="bg-yellow-100 hover:bg-yellow-200 text-yellow-800"
+                >
+                  🧪 Test
+                </ToolbarButton>
+              </>
+            )}
           </div>
 
           {/* Right side - AI tools and status */}
@@ -271,32 +287,20 @@ const EditorToolbar: React.FC<Props> = ({
             </div>
 
             {/* AI Rewrite Button */}
-            <ToolbarButton
-              onClick={handleAIRewrite}
-              title="AI Rewrite"
-              className="bg-indigo-600 text-white hover:bg-indigo-700 data-[active=false]:bg-indigo-600 data-[active=false]:text-white"
-            >
-              <SparklesIcon className="w-5 h-5" />
-              <span className="hidden sm:inline ml-1">AI Rewrite</span>
-            </ToolbarButton>
-
-            {/* Analysis Status */}
-            <div className="flex items-center text-xs text-gray-500">
-              {analysisStatus === 'analyzing' && (
-                <>
-                  <svg className="animate-spin h-4 w-4 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  <span className="hidden sm:inline">Analyzing...</span>
-                </>
-              )}
-              {analysisStatus === 'complete' && (
-                <span className="text-green-600 hidden sm:inline">Analysis complete</span>
-              )}
-              {analysisStatus === 'error' && (
-                <span className="text-red-600 hidden sm:inline">Analysis error</span>
-              )}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">
+                {analysisStatus === 'analyzing' && 'Analyzing...'}
+                {analysisStatus === 'complete' && 'Analysis complete'}
+                {analysisStatus === 'error' && 'Analysis error'}
+              </span>
+              <ToolbarButton
+                onClick={handleAIRewrite}
+                title="AI Rewrite"
+                className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700"
+              >
+                <SparklesIcon className="w-4 h-4" />
+                <span className="ml-1 hidden sm:inline">AI Rewrite</span>
+              </ToolbarButton>
             </div>
           </div>
         </div>
@@ -306,6 +310,7 @@ const EditorToolbar: React.FC<Props> = ({
         isOpen={showAIRewriteModal}
         onClose={() => setShowAIRewriteModal(false)}
         onAction={(action) => {
+          console.log('AI Rewrite action:', action);
           setShowAIRewriteModal(false);
           onAIRewrite();
         }}
