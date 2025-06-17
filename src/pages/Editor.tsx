@@ -1,47 +1,42 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+// pages/Editor.tsx
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabaseClient';
 import type { Database } from '../types/supabase';
-import { IconSaveStatus, IconBold, IconItalic, IconUnderline, IconList, IconListOrdered } from '../assets/Icons';
+import { useEditor, EditorContent } from '@tiptap/react';
+import StarterKit from '@tiptap/starter-kit';
+import Underline from '@tiptap/extension-underline';
+// import { SpellCheckExtension } from '../lib/spellCheckExtension';
 
+import { IconSaveStatus } from '../assets/Icons';
+import EditorToolbar from '../components/EditorToolbar';
+import './Editor.css';
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
-interface EditorState {
-  content: string;
-  selectionStart: number;
-  selectionEnd: number;
+// --- Debounce Utility ---
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout;
+  return (...args: Parameters<T>) => {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
 }
 
 const Editor: React.FC = () => {
   const { user } = useAuthStore();
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [document, setDocument] = useState<Document | null>(null);
+  const [documentData, setDocumentData] = useState<Document | null>(null);
   const [loading, setLoading] = useState(true);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
-  const [editorState, setEditorState] = useState<EditorState>({
-    content: '',
-    selectionStart: 0,
-    selectionEnd: 0
-  });
-
-  // --- Debounce Utility ---
-  function debounce<T extends (...args: any[]) => any>(
-    func: T,
-    wait: number
-  ): (...args: Parameters<T>) => void {
-    let timeout: NodeJS.Timeout;
-    return (...args: Parameters<T>) => {
-      clearTimeout(timeout);
-      timeout = setTimeout(() => func(...args), wait);
-    };
-  }
 
   // --- Debounced Save Function ---
   const debouncedSave = useCallback(
@@ -51,10 +46,7 @@ const Editor: React.FC = () => {
       try {
         const { error } = await supabase
           .from('documents')
-          .update({ 
-            content,
-            updated_at: new Date().toISOString()
-          })
+          .update({ content, updated_at: new Date().toISOString() })
           .eq('id', documentId);
 
         if (error) throw error;
@@ -63,14 +55,38 @@ const Editor: React.FC = () => {
         console.error('Error saving document:', error);
         setSaveStatus('error');
       }
-    }, 1000),
+    }, 1500),
     [documentId]
   );
 
-  // --- Data Fetching Effect ---
+  // --- TipTap Editor Instance ---
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({
+        // The collaboration extensions are not used in this setup
+        history: false,
+        heading: {
+            levels: [1, 2, 3],
+        }
+      }),
+      Underline,
+      // SpellCheckExtension, // Temporarily disabled to fix typing issue
+    ],
+    content: '',
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      debouncedSave(html);
+    },
+    editorProps: {
+      attributes: {
+        class: 'prose prose-lg focus:outline-none max-w-full',
+      },
+    },
+  });
+
+  // --- Data Fetching and Content Loading Effect ---
   useEffect(() => {
     if (!user) return;
-
     const fetchDocument = async () => {
       if (!documentId) return;
       setLoading(true);
@@ -83,9 +99,12 @@ const Editor: React.FC = () => {
 
         if (error) throw error;
         if (data) {
-          setDocument(data);
+          setDocumentData(data);
           setEditedTitle(data.title);
-          setEditorState(prev => ({ ...prev, content: data.content || '' }));
+          // Set TipTap content only after it's fetched
+          if (editor && editor.isEditable) {
+            editor.commands.setContent(data.content || '', false);
+          }
         }
       } catch (error) {
         console.error('Error fetching document:', error);
@@ -96,101 +115,34 @@ const Editor: React.FC = () => {
       }
     };
     fetchDocument();
-  }, [documentId, navigate, user]);
-
+  }, [documentId, navigate, user, editor]);
+  
   // --- Title Update Function ---
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
     try {
       const { error } = await supabase
         .from('documents')
-        .update({ 
-          title: editedTitle.trim(),
-          updated_at: new Date().toISOString()
-        })
+        .update({ title: editedTitle.trim(), updated_at: new Date().toISOString() })
         .eq('id', documentId);
 
       if (error) throw error;
-      setDocument(prev => prev ? { ...prev, title: editedTitle.trim() } : null);
+      setDocumentData(prev => prev ? { ...prev, title: editedTitle.trim() } : null);
       setIsEditingTitle(false);
     } catch (error) {
       console.error('Error updating title:', error);
       alert('Failed to update title.');
     }
   };
-  
-  // --- Content Change Handler ---
-  // CORRECTED: This now correctly calls the debounced save function.
-  const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const { value, selectionStart, selectionEnd } = e.target;
-    setEditorState({ content: value, selectionStart, selectionEnd });
-    debouncedSave(value);
-  };
 
-  const applyFormatting = (format: string) => {
-    if (!textareaRef.current) return;
-    
-    const { value, selectionStart, selectionEnd } = textareaRef.current;
-    let newValue = value;
-    let newSelectionStart = selectionStart;
-    let newSelectionEnd = selectionEnd;
-
-    switch (format) {
-      case 'bold':
-        newValue = value.substring(0, selectionStart) + 
-                  `**${value.substring(selectionStart, selectionEnd)}**` + 
-                  value.substring(selectionEnd);
-        newSelectionStart = selectionStart + 2;
-        newSelectionEnd = selectionEnd + 2;
-        break;
-      case 'italic':
-        newValue = value.substring(0, selectionStart) + 
-                  `*${value.substring(selectionStart, selectionEnd)}*` + 
-                  value.substring(selectionEnd);
-        newSelectionStart = selectionStart + 1;
-        newSelectionEnd = selectionEnd + 1;
-        break;
-      case 'underline':
-        newValue = value.substring(0, selectionStart) + 
-                  `__${value.substring(selectionStart, selectionEnd)}__` + 
-                  value.substring(selectionEnd);
-        newSelectionStart = selectionStart + 2;
-        newSelectionEnd = selectionEnd + 2;
-        break;
-      case 'bullet-list':
-        const lines = value.split('\n');
-        const currentLine = value.substring(0, selectionStart).split('\n').length - 1;
-        if (lines[currentLine] && !lines[currentLine].startsWith('- ')) {
-          lines[currentLine] = `- ${lines[currentLine]}`;
-          newValue = lines.join('\n');
-          newSelectionStart = selectionStart + 2;
-          newSelectionEnd = selectionEnd + 2;
-        }
-        break;
-      case 'numbered-list':
-        const numberedLines = value.split('\n');
-        const currentLineNum = value.substring(0, selectionStart).split('\n').length - 1;
-        if (numberedLines[currentLineNum] && !numberedLines[currentLineNum].match(/^\d+\.\s/)) {
-          numberedLines[currentLineNum] = `1. ${numberedLines[currentLineNum]}`;
-          newValue = numberedLines.join('\n');
-          newSelectionStart = selectionStart + 3;
-          newSelectionEnd = selectionEnd + 3;
-        }
-        break;
-    }
-
-    setEditorState({ 
-      content: newValue, 
-      selectionStart: newSelectionStart, 
-      selectionEnd: newSelectionEnd 
-    });
-    debouncedSave(newValue);
-  };
-
+  if (loading) {
+      return <div>Loading Editor...</div>;
+  }
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 font-sans">
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 shrink-0">
+        {/* Header content remains the same */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4 min-w-0">
              <button onClick={() => navigate('/')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
@@ -212,7 +164,7 @@ const Editor: React.FC = () => {
                 className="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded truncate"
                 onClick={() => setIsEditingTitle(true)}
               >
-                {document?.title || 'Untitled Document'}
+                {documentData?.title || 'Untitled Document'}
               </h1>
             )}
           </div>
@@ -221,32 +173,12 @@ const Editor: React.FC = () => {
           </div>
         </div>
       </header>
-
-      <div className="bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 sm:px-6 py-2 sticky top-0 sm:top-[65px] z-10">
-        <div className="flex items-center space-x-1">
-          {[['bold', <IconBold />], ['italic', <IconItalic />], ['underline', <IconUnderline />]].map(([format, icon]) => (
-             <button key={format as string} onClick={() => applyFormatting(format as string)} className="p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors" title={(format as string).charAt(0).toUpperCase() + (format as string).slice(1)}>
-                {icon}
-            </button>
-          ))}
-          <div className="w-px h-6 bg-gray-300 mx-2"></div>
-           {[['bullet-list', <IconList />], ['numbered-list', <IconListOrdered />]].map(([format, icon]) => (
-             <button key={format as string} onClick={() => applyFormatting(format as string)} className="p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors" title={(format as string).charAt(0).toUpperCase() + (format as string).slice(1)}>
-                {icon}
-            </button>
-          ))}
-        </div>
-      </div>
+      
+      <EditorToolbar editor={editor} />
 
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-4xl mx-auto p-4 sm:p-8 md:p-12">
-          <textarea
-            ref={textareaRef}
-            value={editorState.content}
-            onChange={handleContentChange}
-            className="w-full h-full min-h-[calc(100vh-220px)] p-2 bg-transparent focus:outline-none resize-none font-serif text-lg text-gray-800 leading-relaxed placeholder-gray-400"
-            placeholder="Start writing your masterpiece..."
-          />
+            <EditorContent editor={editor} />
         </div>
       </main>
     </div>

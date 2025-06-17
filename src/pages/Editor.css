@@ -1,0 +1,64 @@
+/* index.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Style for the TipTap editor content area */
+.ProseMirror {
+  min-height: calc(100vh - 250px);
+  padding: 0.5rem;
+  font-family: serif;
+  font-size: 1.125rem; /* text-lg */
+  line-height: 1.6;
+}
+
+.ProseMirror:focus {
+  outline: none;
+}
+
+/* Style for our Grammarly-like spell check errors */
+.spell-error {
+  text-decoration-line: underline;
+  text-decoration-color: red;
+  text-decoration-style: wavy;
+  background-color: rgba(255, 0, 0, 0.05);
+}
+
+/* Basic styling for ProseMirror content */
+.ProseMirror p {
+  margin-bottom: 1em;
+}
+
+.ProseMirror h1, .ProseMirror h2, .ProseMirror h3 {
+  margin: 24px 0 16px;
+  font-weight: 600;
+}
+
+.ProseMirror ul, .ProseMirror ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1em;
+}
+
+.ProseMirror blockquote {
+    border-left: 3px solid #d1d5db; /* gray-300 */
+    margin: 1.5em 0;
+    padding-left: 1em;
+    font-style: italic;
+    color: #4b5563; /* gray-600 */
+}
+
+.ProseMirror pre {
+  background: #1f2937; /* gray-900 */
+  color: #f9fafb; /* gray-50 */
+  font-family: 'JetBrainsMono', monospace;
+  padding: 0.75rem 1rem;
+  border-radius: 0.5rem;
+  margin-bottom: 1em;
+}
+
+.ProseMirror pre code {
+  color: inherit;
+  padding: 0;
+  background: none;
+  font-size: 0.9em;
+}
