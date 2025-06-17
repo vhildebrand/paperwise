@@ -26,7 +26,15 @@ serve(async (req) => {
     return new Response('ok', { headers: corsHeaders })
   }
 
+
+
   try {
+    // The key is accessed from environment variables, which Vercel and Supabase both set.
+    const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY");
+    if (!OPENAI_API_KEY) {
+      throw new Error("Missing OPENAI_API_KEY environment variable.");
+    }
+
     const { text } = await req.json()
     if (!text) {
       throw new Error('No text provided');
