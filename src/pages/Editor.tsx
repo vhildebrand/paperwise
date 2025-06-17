@@ -13,7 +13,7 @@ import EditorToolbar from '../components/EditorToolbar';
 import './Editor.css';
 
 import { AnalysisExtension } from '../lib/AnalysisExtension';
-import SuggestionPopup from '../components/SuggestionPopup';
+import SuggestionsSidebar from '../components/SuggestionsSidebar';
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
@@ -52,7 +52,62 @@ const Editor: React.FC = () => {
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
 
-  const [activeSuggestion, setActiveSuggestion] = useState<{data: any, rect: DOMRect} | null>(null);
+  const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
+
+  const editor = useEditor({
+    extensions: [
+      StarterKit.configure({ 
+        history: false,
+        heading: {
+            levels: [1, 2, 3],
+        }
+      }),
+      Underline,
+      AnalysisExtension.configure({
+          suggestions: [], // Start with empty
+          onSuggestionClick: (suggestion, _element) => setSelectedSuggestion(suggestion),
+          selectedSuggestion: null,
+      }),
+    ],
+    content: '',
+    onUpdate: ({ editor }) => {
+      const html = editor.getHTML();
+      const text = editor.getText();
+      debouncedSave(html);
+      debouncedAnalysis(text);
+    },
+    editorProps: {
+      attributes: {
+        class: 'prose prose-lg focus:outline-none max-w-full mx-auto bg-white p-8 shadow-sm rounded-lg min-h-full',
+        spellcheck: 'false',
+      },
+    },
+  });
+
+  useEffect(() => {
+    if (!editor) return;
+
+    const newExtensions = [
+        StarterKit.configure({ 
+            history: false,
+            heading: {
+                levels: [1, 2, 3],
+            }
+        }),
+        Underline,
+        AnalysisExtension.configure({
+            suggestions,
+            onSuggestionClick: (suggestion, _element) => setSelectedSuggestion(suggestion),
+            selectedSuggestion,
+        }),
+    ];
+
+    // This is not ideal, but it's the simplest way to update the decorations
+    // without a major refactor of the AnalysisExtension.
+    editor.setOptions({
+        extensions: newExtensions
+    });
+  }, [suggestions, editor, selectedSuggestion]);
 
   // --- Debounced Save Function ---
   const debouncedSave = useCallback(
@@ -105,15 +160,9 @@ const Editor: React.FC = () => {
     []
   );
 
-
-  const handleSuggestionClick = (suggestion: any, element: HTMLElement) => {
-      const rect = element.getBoundingClientRect();
-      setActiveSuggestion({ data: suggestion, rect });
-  };
-
-  const handleAcceptSuggestion = () => {
-      if (!editor || !activeSuggestion) return;
-      const { startIndex, endIndex, suggestion } = activeSuggestion.data;
+  const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
+      if (!editor) return;
+      const { startIndex, endIndex, suggestion } = suggestionToAccept;
 
       // Apply the change to the editor
       editor.chain().focus()
@@ -122,53 +171,18 @@ const Editor: React.FC = () => {
 
       // Remove this suggestion from the list
       setSuggestions(current => current.filter(s => s.startIndex !== startIndex));
-      setActiveSuggestion(null);
+      setSelectedSuggestion(null);
   };
 
-  const handleDismissSuggestion = () => {
-      if (!activeSuggestion) return;
+  const handleDismissSuggestion = (suggestionToDismiss: AnalysisSuggestion) => {
       // Just remove it from the list for this session
-      setSuggestions(current => current.filter(s => s.startIndex !== activeSuggestion.data.startIndex));
-      setActiveSuggestion(null);
+      setSuggestions(current => current.filter(s => s.startIndex !== suggestionToDismiss.startIndex));
+      setSelectedSuggestion(null);
   };
-
-  // --- TipTap Editor Instance ---
-  // Wrap extensions in useMemo to reconfigure when suggestions change
-  const editorExtensions = useMemo(() => [
-    StarterKit.configure({ 
-      history: false,
-      heading: {
-          levels: [1, 2, 3],
-      }
-    }),
-    Underline,
-    AnalysisExtension.configure({
-        suggestions,
-        onSuggestionClick: handleSuggestionClick,
-    }),
-  ], [suggestions]); // Dependency array is key!
-
-  // --- TipTap Editor Instance ---
-  const editor = useEditor({
-    extensions: editorExtensions,
-    content: '',
-    onUpdate: ({ editor }) => {
-      const html = editor.getHTML();
-      const text = editor.getText();
-      debouncedSave(html);
-      debouncedAnalysis(text); // Analyze the text for spelling and grammar errors, need to play with debounce time
-    },
-    editorProps: {
-      attributes: {
-        class: 'prose prose-lg focus:outline-none max-w-full',
-        spellcheck: 'false', // Disable browser spell check
-      },
-    },
-  }, [editorExtensions]); // Add editorExtensions as dependency
 
   // --- Data Fetching and Content Loading Effect ---
   useEffect(() => {
-    if (!user) return;
+    if (!user || !editor) return;
     const fetchDocument = async () => {
       if (!documentId) return;
       setLoading(true);
@@ -184,8 +198,13 @@ const Editor: React.FC = () => {
           setDocumentData(data);
           setEditedTitle(data.title);
           // Set TipTap content only after it's fetched
-          if (editor && editor.isEditable) {
+          if (editor.isEditable) {
             editor.commands.setContent(data.content || '', false);
+            // Trigger analysis on load
+            const initialText = editor.getText();
+            if (initialText) {
+              debouncedAnalysis(initialText);
+            }
           }
         }
       } catch (error) {
@@ -223,62 +242,83 @@ const Editor: React.FC = () => {
   };
 
   if (loading) {
-      return <div>Loading Editor...</div>;
+      return <div>Loading document...</div>;
   }
 
-  return (
-    <div className="h-screen flex flex-col bg-gray-50 font-sans" onClick={() => activeSuggestion && setActiveSuggestion(null)}>
-      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 shrink-0">
-        {/* Header content remains the same */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4 min-w-0">
-             <button onClick={() => navigate('/')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
-                &larr; Back to Dashboard
-             </button>
-             <div className="h-6 w-px bg-gray-300 hidden sm:block"></div>
-             {isEditingTitle ? (
-              <input
-                type="text"
-                value={editedTitle}
-                onChange={(e) => setEditedTitle(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && updateTitle()}
-                onBlur={updateTitle}
-                className="text-lg font-bold px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-auto"
-                autoFocus
-              />
-            ) : (
-              <h1 
-                className="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded truncate"
-                onClick={() => setIsEditingTitle(true)}
-              >
-                {documentData?.title || 'Untitled Document'}
-              </h1>
-            )}
-          </div>
-          <div className="flex items-center space-x-4">
-             <IconSaveStatus status={saveStatus} />
-          </div>
-        </div>
-      </header>
-      
-      <EditorToolbar editor={editor} />
+  if (!documentData) {
+    return <div>Document not found.</div>;
+  }
 
-      <main className="flex-1 overflow-y-auto relative">
-          {activeSuggestion && (
-            <SuggestionPopup
-              suggestion={activeSuggestion.data}
-              onAccept={handleAcceptSuggestion}
-              onDismiss={handleDismissSuggestion}
-              style={{ 
-                  top: activeSuggestion.rect.bottom + window.scrollY + 5, 
-                  left: activeSuggestion.rect.left + window.scrollX 
-              }}
-            />
-          )}
-        <div className="max-w-4xl mx-auto p-4 sm:p-8 md:p-12">
+  const handleTitleClick = () => {
+    setIsEditingTitle(true);
+  };
+
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditedTitle(e.target.value);
+  };
+
+  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      updateTitle();
+    }
+    if (e.key === 'Escape') {
+      setEditedTitle(documentData.title);
+      setIsEditingTitle(false);
+    }
+  };
+
+  return (
+    <div className="flex h-screen bg-gray-100 font-sans">
+      {/* Main Content Area */}
+      <main className="flex-1 flex flex-col overflow-y-auto">
+        {/* Top Bar */}
+        <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4">
+            <div className='max-w-4xl mx-auto flex items-center justify-between'>
+                <div className="flex items-center space-x-4">
+                    {isEditingTitle ? (
+                        <input
+                            type="text"
+                            value={editedTitle}
+                            onChange={handleTitleChange}
+                            onBlur={updateTitle}
+                            onKeyDown={handleTitleKeyDown}
+                            className="text-2xl font-bold p-1 -m-1 border-b-2 border-blue-500 outline-none"
+                            autoFocus
+                        />
+                    ) : (
+                        <h1 onClick={handleTitleClick} className="text-2xl font-bold cursor-pointer">
+                            {documentData.title}
+                        </h1>
+                    )}
+                </div>
+                <div className="flex items-center space-x-2">
+                    <span className="text-sm text-gray-500">{saveStatus}</span>
+                    <IconSaveStatus status={saveStatus} />
+                </div>
+            </div>
+        </div>
+
+        {/* Editor Toolbar */}
+        {editor && <EditorToolbar editor={editor} analysisStatus={analysisStatus} />}
+
+        {/* Editor Canvas */}
+        <div className="flex-1 p-6 overflow-y-auto">
+          <div className="max-w-4xl mx-auto">
             <EditorContent editor={editor} />
+          </div>
         </div>
       </main>
+
+      {/* Right Sidebar */}
+      <aside className="w-96 bg-white border-l border-gray-200 flex flex-col">
+        <SuggestionsSidebar
+            suggestions={suggestions}
+            selectedSuggestion={selectedSuggestion}
+            onAccept={handleAcceptSuggestion}
+            onDismiss={handleDismissSuggestion}
+            onSelect={setSelectedSuggestion}
+        />
+      </aside>
     </div>
   );
 };
