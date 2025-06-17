@@ -3,10 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabaseClient';
 import type { Database } from '../types/supabase';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import remarkBreaks from 'remark-breaks';
-import { IconSaveStatus, IconBold, IconItalic, IconUnderline, IconList, IconListOrdered, IconSparkles } from '../assets/Icons';
+import { IconSaveStatus, IconBold, IconItalic, IconUnderline, IconList, IconListOrdered } from '../assets/Icons';
+
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
@@ -16,7 +14,6 @@ interface EditorState {
   selectionEnd: number;
 }
 
-// --- Main Editor Component ---
 const Editor: React.FC = () => {
   const { user } = useAuthStore();
   const { documentId } = useParams<{ documentId: string }>();
@@ -33,11 +30,6 @@ const Editor: React.FC = () => {
     selectionStart: 0,
     selectionEnd: 0
   });
-
-  // --- Grammar/Spell Check State ---
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [isChecking, setIsChecking] = useState(false);
-
 
   // --- Debounce Utility ---
   function debounce<T extends (...args: any[]) => any>(
@@ -134,138 +126,129 @@ const Editor: React.FC = () => {
     setEditorState({ content: value, selectionStart, selectionEnd });
     debouncedSave(value);
   };
-  
-  // --- Grammar Check Handler (Placeholder) ---
-  const handleGrammarCheck = async () => {
-    setIsChecking(true);
-    setSuggestions([]);
+
+  const applyFormatting = (format: string) => {
+    if (!textareaRef.current) return;
     
-    // Simulate an API call to a grammar checking service
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    
-    // Placeholder suggestions
-    const dummySuggestions = [
-        "Suggestion 1: Consider rephrasing for clarity.",
-        "Suggestion 2: Potential spelling error found.",
-        "Suggestion 3: Sentence may be a run-on."
-    ];
-    setSuggestions(dummySuggestions);
-    setIsChecking(false);
+    const { value, selectionStart, selectionEnd } = textareaRef.current;
+    let newValue = value;
+    let newSelectionStart = selectionStart;
+    let newSelectionEnd = selectionEnd;
+
+    switch (format) {
+      case 'bold':
+        newValue = value.substring(0, selectionStart) + 
+                  `**${value.substring(selectionStart, selectionEnd)}**` + 
+                  value.substring(selectionEnd);
+        newSelectionStart = selectionStart + 2;
+        newSelectionEnd = selectionEnd + 2;
+        break;
+      case 'italic':
+        newValue = value.substring(0, selectionStart) + 
+                  `*${value.substring(selectionStart, selectionEnd)}*` + 
+                  value.substring(selectionEnd);
+        newSelectionStart = selectionStart + 1;
+        newSelectionEnd = selectionEnd + 1;
+        break;
+      case 'underline':
+        newValue = value.substring(0, selectionStart) + 
+                  `__${value.substring(selectionStart, selectionEnd)}__` + 
+                  value.substring(selectionEnd);
+        newSelectionStart = selectionStart + 2;
+        newSelectionEnd = selectionEnd + 2;
+        break;
+      case 'bullet-list':
+        const lines = value.split('\n');
+        const currentLine = value.substring(0, selectionStart).split('\n').length - 1;
+        if (lines[currentLine] && !lines[currentLine].startsWith('- ')) {
+          lines[currentLine] = `- ${lines[currentLine]}`;
+          newValue = lines.join('\n');
+          newSelectionStart = selectionStart + 2;
+          newSelectionEnd = selectionEnd + 2;
+        }
+        break;
+      case 'numbered-list':
+        const numberedLines = value.split('\n');
+        const currentLineNum = value.substring(0, selectionStart).split('\n').length - 1;
+        if (numberedLines[currentLineNum] && !numberedLines[currentLineNum].match(/^\d+\.\s/)) {
+          numberedLines[currentLineNum] = `1. ${numberedLines[currentLineNum]}`;
+          newValue = numberedLines.join('\n');
+          newSelectionStart = selectionStart + 3;
+          newSelectionEnd = selectionEnd + 3;
+        }
+        break;
+    }
+
+    setEditorState({ 
+      content: newValue, 
+      selectionStart: newSelectionStart, 
+      selectionEnd: newSelectionEnd 
+    });
+    debouncedSave(newValue);
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
-      </div>
-    );
-  }
 
   return (
     <div className="h-screen flex flex-col bg-gray-50 font-sans">
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 shrink-0">
         <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4 min-w-0">
-                <button onClick={() => navigate('/')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
-                    &larr; Back to Dashboard
-                </button>
-                <div className="h-6 w-px bg-gray-300 hidden sm:block"></div>
-                {isEditingTitle ? (
-                    <input
-                        type="text"
-                        value={editedTitle}
-                        onChange={(e) => setEditedTitle(e.target.value)}
-                        onKeyDown={(e) => e.key === 'Enter' && updateTitle()}
-                        onBlur={updateTitle}
-                        className="text-lg font-bold px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-auto"
-                        autoFocus
-                    />
-                ) : (
-                    <h1 
-                        className="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded truncate"
-                        onClick={() => setIsEditingTitle(true)}
-                    >
-                        {document?.title || 'Untitled Document'}
-                    </h1>
-                )}
-            </div>
-            <div className="flex items-center space-x-4">
-                <IconSaveStatus status={saveStatus} />
-            </div>
+          <div className="flex items-center space-x-4 min-w-0">
+             <button onClick={() => navigate('/')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
+                &larr; Back to Dashboard
+             </button>
+             <div className="h-6 w-px bg-gray-300 hidden sm:block"></div>
+             {isEditingTitle ? (
+              <input
+                type="text"
+                value={editedTitle}
+                onChange={(e) => setEditedTitle(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && updateTitle()}
+                onBlur={updateTitle}
+                className="text-lg font-bold px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-auto"
+                autoFocus
+              />
+            ) : (
+              <h1 
+                className="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded truncate"
+                onClick={() => setIsEditingTitle(true)}
+              >
+                {document?.title || 'Untitled Document'}
+              </h1>
+            )}
+          </div>
+          <div className="flex items-center space-x-4">
+             <IconSaveStatus status={saveStatus} />
+          </div>
         </div>
       </header>
 
       <div className="bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 sm:px-6 py-2 sticky top-0 sm:top-[65px] z-10">
-        <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-1">
-                {/* Formatting buttons can be added back here if markdown syntax helpers are desired */}
-            </div>
-            <div>
-                 <button 
-                    onClick={handleGrammarCheck}
-                    disabled={isChecking}
-                    className="inline-flex items-center gap-2 px-3 py-1.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
-                >
-                    <IconSparkles className="w-4 h-4" />
-                    {isChecking ? 'Checking...' : 'Check Document'}
-                </button>
-            </div>
+        <div className="flex items-center space-x-1">
+          {[['bold', <IconBold />], ['italic', <IconItalic />], ['underline', <IconUnderline />]].map(([format, icon]) => (
+             <button key={format as string} onClick={() => applyFormatting(format as string)} className="p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors" title={(format as string).charAt(0).toUpperCase() + (format as string).slice(1)}>
+                {icon}
+            </button>
+          ))}
+          <div className="w-px h-6 bg-gray-300 mx-2"></div>
+           {[['bullet-list', <IconList />], ['numbered-list', <IconListOrdered />]].map(([format, icon]) => (
+             <button key={format as string} onClick={() => applyFormatting(format as string)} className="p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors" title={(format as string).charAt(0).toUpperCase() + (format as string).slice(1)}>
+                {icon}
+            </button>
+          ))}
         </div>
       </div>
 
-      <main className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-px overflow-hidden">
-        {/* Markdown Input */}
-        <div className="h-full overflow-y-auto bg-white">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto p-4 sm:p-8 md:p-12">
           <textarea
             ref={textareaRef}
             value={editorState.content}
-            onChange={handleContentChange} // CORRECTED: Now calls the proper handler
-            className="w-full h-full min-h-[calc(100vh-220px)] p-8 bg-transparent focus:outline-none resize-none font-mono text-base text-gray-800 leading-relaxed placeholder-gray-400"
-            placeholder="Write your markdown here..."
+            onChange={handleContentChange}
+            className="w-full h-full min-h-[calc(100vh-220px)] p-2 bg-transparent focus:outline-none resize-none font-serif text-lg text-gray-800 leading-relaxed placeholder-gray-400"
+            placeholder="Start writing your masterpiece..."
           />
         </div>
-
-        {/* Markdown Preview */}
-        <div className="h-full overflow-y-auto bg-white p-8 prose prose-gray lg:prose-lg max-w-none">
-          <ReactMarkdown
-                // Add `remarkBreaks` to the array
-                remarkPlugins={[remarkGfm, remarkBreaks]} 
-                components={{
-                  h1: ({children}) => <h1 className="text-3xl font-bold text-gray-900 mb-4 mt-6">{children}</h1>,
-                  h2: ({children}) => <h2 className="text-2xl font-bold text-gray-900 mb-3 mt-5">{children}</h2>,
-                  h3: ({children}) => <h3 className="text-xl font-bold text-gray-900 mb-2 mt-4">{children}</h3>,
-                  h4: ({children}) => <h4 className="text-lg font-bold text-gray-900 mb-2 mt-3">{children}</h4>,
-                  h5: ({children}) => <h5 className="text-base font-bold text-gray-900 mb-1 mt-2">{children}</h5>,
-                  h6: ({children}) => <h6 className="text-sm font-bold text-gray-900 mb-1 mt-2">{children}</h6>,
-                  ul: ({children}) => <ul className="list-disc list-inside mb-4 space-y-1">{children}</ul>,
-                  ol: ({children}) => <ol className="list-decimal list-inside mb-4 space-y-1">{children}</ol>,
-                  li: ({children}) => <li className="text-gray-700">{children}</li>,
-                  p: ({children}) => <p className="mb-4 text-gray-700 leading-relaxed">{children}</p>,
-                  blockquote: ({children}) => <blockquote className="border-l-4 border-gray-300 pl-4 italic text-gray-600 mb-4">{children}</blockquote>,
-                  code: ({children}) => <code className="bg-gray-100 px-1 py-0.5 rounded text-sm font-mono">{children}</code>,
-                  pre: ({children}) => <pre className="bg-gray-100 p-4 rounded-lg overflow-x-auto mb-4">{children}</pre>,
-                  strong: ({children}) => <strong className="font-bold">{children}</strong>,
-                  em: ({children}) => <em className="italic">{children}</em>,
-                }}
-            >
-                {editorState.content || "## Preview\n\nYour rendered markdown will appear here."}
-            </ReactMarkdown>
-        </div>
       </main>
-
-      {/* Suggestions Panel */}
-      {suggestions.length > 0 && (
-          <footer className="bg-gray-100 border-t border-gray-200 p-4 shrink-0">
-              <h3 className="text-sm font-semibold mb-2 text-gray-800">Grammar & Spelling Suggestions</h3>
-              <ul className="space-y-2">
-                  {suggestions.map((suggestion, index) => (
-                      <li key={index} className="text-sm text-gray-700 p-2 bg-yellow-100 border border-yellow-200 rounded-md">
-                        {suggestion}
-                      </li>
-                  ))}
-              </ul>
-          </footer>
-      )}
     </div>
   );
 };
