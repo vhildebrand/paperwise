@@ -145,7 +145,7 @@ const Dashboard: React.FC = () => {
             ) : documents.length > 0 ? (
               <ul role="list" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {documents.map((doc) => (
-                  <li key={doc.id} onClick={() => navigate('editor', { state: { documentId: doc.id } })}
+                  <li key={doc.id} onClick={() => navigate(`/editor/${doc.id}`)}
                       className="group bg-white p-6 rounded-xl shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col justify-between">
                     <div>
                         <p className="text-lg font-semibold text-gray-800 group-hover:text-indigo-600 transition-colors truncate">{doc.title}</p>

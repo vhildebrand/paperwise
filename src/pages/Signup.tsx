@@ -28,7 +28,7 @@ const Signup: React.FC = () => {
             </h2>
             <p className="mt-2 text-sm text-gray-600">
                 Or{' '}
-                <button onClick={() => navigate('login')} className="font-medium text-indigo-600 hover:text-indigo-500">
+                <button onClick={() => navigate('/login')} className="font-medium text-indigo-600 hover:text-indigo-500">
                     sign in to an existing account
                 </button>
             </p>

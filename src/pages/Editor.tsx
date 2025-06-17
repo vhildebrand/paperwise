@@ -230,7 +230,7 @@ const Editor: React.FC = () => {
       <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 shrink-0">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-4 min-w-0">
-             <button onClick={() => navigate('dashboard')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
+             <button onClick={() => navigate('/')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
                 &larr; Back to Dashboard
              </button>
              <div className="h-6 w-px bg-gray-300 hidden sm:block"></div>
