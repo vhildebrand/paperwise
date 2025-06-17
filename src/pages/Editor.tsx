@@ -1,5 +1,5 @@
 // pages/Editor.tsx
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabaseClient';
@@ -7,17 +7,18 @@ import type { Database } from '../types/supabase';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
+import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import { IconSaveStatus } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
+import SuggestionsSidebar from '../components/SuggestionsSidebar';
+import InlineCard from '../components/InlineCard';
 import './Editor.css';
 
-import { AnalysisExtension } from '../lib/AnalysisExtension';
-import SuggestionsSidebar from '../components/SuggestionsSidebar';
+import { AnalysisExtension, type AnalysisSuggestion } from '../lib/AnalysisExtension';
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
-// --- Debounce Utility ---
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
@@ -28,16 +29,6 @@ function debounce<T extends (...args: any[]) => any>(
     timeout = setTimeout(() => func(...args), wait);
   };
 }
-
-
-type AnalysisSuggestion = {
-  type: 'spelling' | 'grammar' | 'style';
-  originalText: string;
-  suggestion: string;
-  explanation: string;
-  startIndex: number;
-  endIndex: number;
-};
 
 const Editor: React.FC = () => {
   const { user } = useAuthStore();
@@ -51,136 +42,211 @@ const Editor: React.FC = () => {
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
-
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
+  const [hoveredSuggestion, setHoveredSuggestion] = useState<AnalysisSuggestion | null>(null);
+  const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [selectedTone, setSelectedTone] = useState('formal');
+  const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  
+  const editorRef = useRef<HTMLDivElement>(null);
+  const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  // Enhanced autosave with 5-second idle timer
+  const debouncedSave = useCallback(debounce(async (content: string) => {
+    if (!documentId) return;
+    setSaveStatus('saving');
+    try {
+      const { error } = await supabase
+        .from('documents')
+        .update({ 
+          content, 
+          updated_at: new Date().toISOString() 
+        })
+        .eq('id', documentId);
+      
+      if (error) throw error;
+      setSaveStatus('saved');
+      setLastSaveTime(new Date());
+    } catch (error) {
+      console.error('Error saving document:', error);
+      setSaveStatus('error');
+    }
+  }, 100), [documentId]); // Reduced debounce to 100ms for better responsiveness
+
+  const debouncedAnalysis = useCallback(debounce(async (text: string) => {
+    if (!text.trim() || text.length < 20) {
+      setSuggestions([]);
+      setAnalysisStatus('idle');
+      return;
+    }
+    setAnalysisStatus('analyzing');
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze', { 
+        body: { 
+          text,
+          tone: selectedTone // Pass selected tone to influence analysis
+        } 
+      });
+      if (error) throw error;
+      setSuggestions(data || []);
+      setAnalysisStatus('complete');
+    } catch (error) {
+      console.error('Error analyzing document:', error);
+      setAnalysisStatus('error');
+    }
+  }, 2000), [selectedTone]);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({ 
         history: false,
-        heading: {
-            levels: [1, 2, 3],
-        }
+        heading: { levels: [1, 2, 3] }
       }),
       Underline,
       AnalysisExtension.configure({
-          suggestions: [], // Start with empty
-          onSuggestionClick: (suggestion, _element) => setSelectedSuggestion(suggestion),
-          selectedSuggestion: null,
+          suggestions: [],
+          onSuggestionClick: (suggestion, element) => {
+            setSelectedSuggestion(suggestion);
+            // Scroll to the suggestion
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          },
+          onSuggestionHover: (suggestion, element) => {
+            setHoveredSuggestion(suggestion);
+            if (element && suggestion) {
+              const rect = element.getBoundingClientRect();
+              setHoverPosition({
+                x: rect.left + rect.width / 2,
+                y: rect.top
+              });
+            }
+          },
+          selectedSuggestion: selectedSuggestion,
       }),
     ],
     content: '',
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const text = editor.getText();
-      debouncedSave(html);
+      
+      // Clear existing autosave timeout
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+      
+      // Set new autosave timeout (5 seconds)
+      autosaveTimeoutRef.current = setTimeout(() => {
+        debouncedSave(html);
+      }, 5000);
+      
       debouncedAnalysis(text);
+    },
+    onBlur: ({ editor }) => {
+      // Save immediately on blur
+      const html = editor.getHTML();
+      debouncedSave(html);
     },
     editorProps: {
       attributes: {
-        class: 'prose prose-lg focus:outline-none max-w-full mx-auto bg-white p-8 shadow-sm rounded-lg min-h-full',
+        class: 'prose prose-lg focus:outline-none max-w-full mx-auto',
         spellcheck: 'false',
       },
     },
   });
 
+  // Update editor extensions when suggestions or selected suggestion changes
   useEffect(() => {
     if (!editor) return;
-
-    const newExtensions = [
-        StarterKit.configure({ 
-            history: false,
-            heading: {
-                levels: [1, 2, 3],
-            }
-        }),
-        Underline,
-        AnalysisExtension.configure({
-            suggestions,
-            onSuggestionClick: (suggestion, _element) => setSelectedSuggestion(suggestion),
-            selectedSuggestion,
-        }),
-    ];
-
-    // This is not ideal, but it's the simplest way to update the decorations
-    // without a major refactor of the AnalysisExtension.
     editor.setOptions({
-        extensions: newExtensions
+        extensions: [
+            StarterKit.configure({ 
+                history: false,
+                heading: { levels: [1, 2, 3] }
+            }),
+            Underline,
+            AnalysisExtension.configure({
+                suggestions,
+                onSuggestionClick: (suggestion, element) => {
+                  setSelectedSuggestion(suggestion);
+                  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                },
+                onSuggestionHover: (suggestion, element) => {
+                  setHoveredSuggestion(suggestion);
+                  if (element && suggestion) {
+                    const rect = element.getBoundingClientRect();
+                    setHoverPosition({
+                      x: rect.left + rect.width / 2,
+                      y: rect.top
+                    });
+                  }
+                },
+                selectedSuggestion,
+            }),
+        ]
     });
   }, [suggestions, editor, selectedSuggestion]);
 
-  // --- Debounced Save Function ---
-  const debouncedSave = useCallback(
-    debounce(async (content: string) => {
-      if (!documentId) return;
-      setSaveStatus('saving');
-      try {
-        const { error } = await supabase
-          .from('documents')
-          .update({ content, updated_at: new Date().toISOString() })
-          .eq('id', documentId);
-
-        if (error) throw error;
-        setSaveStatus('saved');
-      } catch (error) {
-        console.error('Error saving document:', error);
-        setSaveStatus('error');
-      }
-    }, 1500),
-    [documentId]
-  );
-
-  // --- Debounced Analysis Function ---
-  const debouncedAnalysis = useCallback(
-    debounce(async (text: string) => {
-      console.log('Analysis triggered with text length:', text.length);
-      if (!text.trim() || text.length < 20) { // Avoid analyzing very short texts
-        console.log('Text too short, skipping analysis');
-        setSuggestions([]);
-        return;
-      };
-      console.log('Starting analysis...');
-      setAnalysisStatus('analyzing');
-      try {
-        console.log('Calling Supabase function...');
-        const { data, error } = await supabase.functions.invoke('analyze', {
-          body: { text },
-        });
-
-        if (error) throw error;
-
-        console.log('Analysis result:', data);
-        setSuggestions(data);
-        setAnalysisStatus('complete');
-      } catch (error) {
-        console.error('Error analyzing document:', error);
-        setAnalysisStatus('idle'); // or 'error'
-      }
-    }, 2000), // 2-second debounce after user stops typing
-    []
-  );
-
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
-      if (!editor) return;
-      const { startIndex, endIndex, suggestion } = suggestionToAccept;
+    if (!editor) return;
+    const { startIndex, endIndex, suggestion, originalText } = suggestionToAccept;
 
-      // Apply the change to the editor
-      editor.chain().focus()
-        .insertContentAt({ from: startIndex + 1, to: endIndex + 1 }, suggestion)
-        .run();
+    // This uses the correct ProseMirror positions, which are 1-based.
+    editor.chain().focus()
+      .setTextSelection({ from: startIndex + 1, to: endIndex + 1 })
+      .insertContent(suggestion)
+      .run();
 
-      // Remove this suggestion from the list
-      setSuggestions(current => current.filter(s => s.startIndex !== startIndex));
-      setSelectedSuggestion(null);
+    // Adjust indices of subsequent suggestions.
+    const lengthDifference = suggestion.length - originalText.length;
+    
+    setSuggestions(current => {
+        return current
+            .filter(s => s.startIndex !== suggestionToAccept.startIndex)
+            .map(s => {
+                if (s.startIndex > suggestionToAccept.startIndex) {
+                    return {
+                        ...s,
+                        startIndex: s.startIndex + lengthDifference,
+                        endIndex: s.endIndex + lengthDifference,
+                    };
+                }
+                return s;
+            });
+    });
+    setSelectedSuggestion(null);
+    setHoveredSuggestion(null);
   };
 
   const handleDismissSuggestion = (suggestionToDismiss: AnalysisSuggestion) => {
-      // Just remove it from the list for this session
-      setSuggestions(current => current.filter(s => s.startIndex !== suggestionToDismiss.startIndex));
-      setSelectedSuggestion(null);
+    setSuggestions(current => current.filter(s => s.startIndex !== suggestionToDismiss.startIndex));
+    setSelectedSuggestion(null);
+    setHoveredSuggestion(null);
   };
 
-  // --- Data Fetching and Content Loading Effect ---
+  const handleNavigateSuggestions = (direction: 'prev' | 'next') => {
+    if (!suggestions.length) return;
+    
+    const currentIndex = selectedSuggestion 
+      ? suggestions.findIndex(s => s.startIndex === selectedSuggestion.startIndex)
+      : -1;
+    
+    let newIndex: number;
+    if (direction === 'prev') {
+      newIndex = currentIndex <= 0 ? suggestions.length - 1 : currentIndex - 1;
+    } else {
+      newIndex = currentIndex >= suggestions.length - 1 ? 0 : currentIndex + 1;
+    }
+    
+    setSelectedSuggestion(suggestions[newIndex]);
+  };
+
+  const handleAIRewrite = () => {
+    // This would integrate with your AI rewrite functionality
+    console.log('AI Rewrite triggered with tone:', selectedTone);
+    // You can implement the actual AI rewrite logic here
+  };
+
+  // Load document on mount
   useEffect(() => {
     if (!user || !editor) return;
     const fetchDocument = async () => {
@@ -192,15 +258,13 @@ const Editor: React.FC = () => {
           .select('*')
           .eq('id', documentId)
           .single();
-
+        
         if (error) throw error;
         if (data) {
           setDocumentData(data);
           setEditedTitle(data.title);
-          // Set TipTap content only after it's fetched
           if (editor.isEditable) {
             editor.commands.setContent(data.content || '', false);
-            // Trigger analysis on load
             const initialText = editor.getText();
             if (initialText) {
               debouncedAnalysis(initialText);
@@ -216,22 +280,20 @@ const Editor: React.FC = () => {
       }
     };
     fetchDocument();
-  }, [documentId, navigate, user, editor]);
+  }, [documentId, navigate, user, editor, debouncedAnalysis]);
 
-  // Debug effect to log suggestions changes
-  useEffect(() => {
-    console.log('Suggestions updated:', suggestions);
-  }, [suggestions]);
-  
-  // --- Title Update Function ---
+  // Update title
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
     try {
       const { error } = await supabase
         .from('documents')
-        .update({ title: editedTitle.trim(), updated_at: new Date().toISOString() })
+        .update({ 
+          title: editedTitle.trim(), 
+          updated_at: new Date().toISOString() 
+        })
         .eq('id', documentId);
-
+      
       if (error) throw error;
       setDocumentData(prev => prev ? { ...prev, title: editedTitle.trim() } : null);
       setIsEditingTitle(false);
@@ -241,26 +303,34 @@ const Editor: React.FC = () => {
     }
   };
 
-  if (loading) {
-      return <div>Loading document...</div>;
-  }
+  // Cleanup autosave timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (autosaveTimeoutRef.current) {
+        clearTimeout(autosaveTimeoutRef.current);
+      }
+    };
+  }, []);
 
-  if (!documentData) {
-    return <div>Document not found.</div>;
-  }
+  if (loading) return (
+    <div className="flex items-center justify-center h-screen">
+      <div className="text-center">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+        <p className="text-gray-600">Loading document...</p>
+      </div>
+    </div>
+  );
+  
+  if (!documentData) return (
+    <div className="flex items-center justify-center h-screen">
+      <p className="text-gray-600">Document not found.</p>
+    </div>
+  );
 
-  const handleTitleClick = () => {
-    setIsEditingTitle(true);
-  };
-
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEditedTitle(e.target.value);
-  };
-
+  const handleTitleClick = () => setIsEditingTitle(true);
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => setEditedTitle(e.target.value);
   const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      updateTitle();
-    }
+    if (e.key === 'Enter') updateTitle();
     if (e.key === 'Escape') {
       setEditedTitle(documentData.title);
       setIsEditingTitle(false);
@@ -269,56 +339,88 @@ const Editor: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
-      {/* Main Content Area */}
-      <main className="flex-1 flex flex-col overflow-y-auto">
-        {/* Top Bar */}
-        <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4">
-            <div className='max-w-4xl mx-auto flex items-center justify-between'>
+      <PanelGroup direction="horizontal" className="flex-1">
+        <Panel defaultSize={75} minSize={50}>
+          <div className="flex flex-col h-full">
+            {/* Header */}
+            <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4">
+              <div className='max-w-4xl mx-auto flex items-center justify-between'>
                 <div className="flex items-center space-x-4">
-                    {isEditingTitle ? (
-                        <input
-                            type="text"
-                            value={editedTitle}
-                            onChange={handleTitleChange}
-                            onBlur={updateTitle}
-                            onKeyDown={handleTitleKeyDown}
-                            className="text-2xl font-bold p-1 -m-1 border-b-2 border-blue-500 outline-none"
-                            autoFocus
-                        />
-                    ) : (
-                        <h1 onClick={handleTitleClick} className="text-2xl font-bold cursor-pointer">
-                            {documentData.title}
-                        </h1>
-                    )}
+                  {isEditingTitle ? (
+                    <input 
+                      type="text" 
+                      value={editedTitle} 
+                      onChange={handleTitleChange} 
+                      onBlur={updateTitle} 
+                      onKeyDown={handleTitleKeyDown} 
+                      className="text-2xl font-bold p-1 -m-1 border-b-2 border-blue-500 outline-none" 
+                      autoFocus 
+                    />
+                  ) : (
+                    <h1 onClick={handleTitleClick} className="text-2xl font-bold cursor-pointer hover:text-blue-600 transition-colors">
+                      {documentData.title}
+                    </h1>
+                  )}
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2">
                     <span className="text-sm text-gray-500">{saveStatus}</span>
                     <IconSaveStatus status={saveStatus} />
+                  </div>
+                  {lastSaveTime && (
+                    <span className="text-xs text-gray-400">
+                      Last saved: {lastSaveTime.toLocaleTimeString()}
+                    </span>
+                  )}
                 </div>
+              </div>
             </div>
-        </div>
 
-        {/* Editor Toolbar */}
-        {editor && <EditorToolbar editor={editor} analysisStatus={analysisStatus} />}
+            {/* Toolbar */}
+            {editor && (
+              <EditorToolbar 
+                editor={editor} 
+                analysisStatus={analysisStatus}
+                selectedTone={selectedTone}
+                onToneChange={setSelectedTone}
+                onAIRewrite={handleAIRewrite}
+              />
+            )}
 
-        {/* Editor Canvas */}
-        <div className="flex-1 p-6 overflow-y-auto">
-          <div className="max-w-4xl mx-auto">
-            <EditorContent editor={editor} />
+            {/* Editor Content */}
+            <div className="flex-1 p-6 overflow-y-auto" ref={editorRef}>
+              <div className="max-w-4xl mx-auto bg-white p-8 shadow-lg rounded-lg min-h-full">
+                <EditorContent editor={editor} />
+              </div>
+            </div>
           </div>
-        </div>
-      </main>
+        </Panel>
 
-      {/* Right Sidebar */}
-      <aside className="w-96 bg-white border-l border-gray-200 flex flex-col">
+        {/* Suggestions Sidebar */}
         <SuggestionsSidebar
-            suggestions={suggestions}
-            selectedSuggestion={selectedSuggestion}
-            onAccept={handleAcceptSuggestion}
-            onDismiss={handleDismissSuggestion}
-            onSelect={setSelectedSuggestion}
+          suggestions={suggestions}
+          selectedSuggestion={selectedSuggestion}
+          onAccept={handleAcceptSuggestion}
+          onDismiss={handleDismissSuggestion}
+          onSelect={setSelectedSuggestion}
+          analysisStatus={analysisStatus}
+          isVisible={sidebarVisible}
+          onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
         />
-      </aside>
+      </PanelGroup>
+
+      {/* Inline Card for hover */}
+      {hoveredSuggestion && (
+        <InlineCard
+          suggestion={hoveredSuggestion}
+          onAccept={handleAcceptSuggestion}
+          onDismiss={handleDismissSuggestion}
+          onNavigate={handleNavigateSuggestions}
+          hasPrevious={suggestions.length > 1}
+          hasNext={suggestions.length > 1}
+          position={hoverPosition}
+        />
+      )}
     </div>
   );
 };

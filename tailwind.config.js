@@ -4,6 +4,12 @@ export default {
     "./index.html",
     "./src/**/*.{js,ts,jsx,tsx}",
   ],
+  safelist: [
+    'suggestion-spelling',
+    'suggestion-grammar',
+    'suggestion-style',
+    'suggestion-selected',
+  ],
   theme: {
     extend: {},
   },
