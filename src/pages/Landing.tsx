@@ -31,7 +31,7 @@ const Landing: React.FC = () => {
         <div className="max-w-7xl mx-auto py-4 px-4 sm:px-6 lg:px-8 flex justify-between items-center">
           <div className="flex items-center space-x-2">
             <IconFile className="h-8 w-8 text-indigo-600" />
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">ClarityWrite</h1>
+            <h1 className="text-xl font-bold text-gray-900 tracking-tight">PaperWise</h1>
           </div>
           <div className="flex items-center space-x-4">
             <button
@@ -59,7 +59,7 @@ const Landing: React.FC = () => {
               Elevate Your Writing. <span className="text-indigo-600">Effortlessly.</span>
             </h2>
             <p className="mt-6 max-w-2xl mx-auto text-lg text-gray-600">
-              ClarityWrite is your AI-powered partner for crafting clear, compelling, and error-free documents. Go from rough draft to polished prose in record time.
+              PaperWise is your AI-powered partner for crafting clear, compelling, and error-free documents. Go from rough draft to polished prose in record time.
             </p>
             <div className="mt-8 flex justify-center gap-4">
               <button
@@ -122,7 +122,7 @@ const Landing: React.FC = () => {
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200">
         <div className="max-w-7xl mx-auto py-6 px-4 sm:px-6 lg:px-8 text-center text-sm text-gray-500">
-          <p>&copy; {new Date().getFullYear()} ClarityWrite. All rights reserved.</p>
+          <p>&copy; {new Date().getFullYear()} PaperWise. All rights reserved.</p>
         </div>
       </footer>
     </div>
