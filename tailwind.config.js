@@ -7,6 +7,12 @@ export default {
   theme: {
     extend: {},
   },
+  variants: {
+    extend: {
+      backgroundColor: ['data-active'],
+      textColor: ['data-active'],
+    },
+  },
   plugins: [
     require('@tailwindcss/typography'),
   ],
