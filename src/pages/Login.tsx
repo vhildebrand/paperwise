@@ -11,8 +11,16 @@ const Login: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await signIn(email, password);
-    navigate('/dashboard'); // Changed from '/' to '/dashboard'
+    
+    // Call signUp and wait for the true/false result
+    const success = await signIn(email, password);
+
+    // Only navigate if the signup was successful
+    if (success) {
+      navigate('/dashboard');
+    }
+    // If it failed, do nothing. The `error` state in the store
+    // will cause the error message to display in the UI.
   };
 
   return (

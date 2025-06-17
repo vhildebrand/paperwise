@@ -1,3 +1,5 @@
+// src/pages/Signup.tsx
+
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
@@ -5,6 +7,7 @@ import { IconFile } from '../assets/Icons';
 
 const Signup: React.FC = () => {
   const navigate = useNavigate();
+  // Note: signUp now returns a Promise<boolean>
   const { signUp, error, loading } = useAuthStore();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -12,10 +15,16 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Call signUp and wait for the true/false result
     const success = await signUp(email, password, name);
+
+    // Only navigate if the signup was successful
     if (success) {
-      navigate('/dashboard'); // Changed from '/' to '/dashboard'
+      navigate('/dashboard');
     }
+    // If it failed, do nothing. The `error` state in the store
+    // will cause the error message to display in the UI.
   };
 
   return (
@@ -34,6 +43,7 @@ const Signup: React.FC = () => {
             </p>
         </div>
         <div className="bg-white p-8 rounded-2xl shadow-lg">
+            {/* The onSubmit handler is still async, but now correctly handles the flow */}
             <form className="space-y-6" onSubmit={handleSubmit}>
               {error && (
                 <div className="rounded-md bg-red-50 p-4">
