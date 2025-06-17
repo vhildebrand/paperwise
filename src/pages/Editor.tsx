@@ -48,11 +48,11 @@ const Editor: React.FC = () => {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
+  const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0 });
 
   const editorRef = useRef<HTMLDivElement>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
 
-  // Enhanced autosave with 5-second idle timer
   const debouncedSave = useCallback(debounce(async (content: string) => {
     if (!documentId) return;
     setSaveStatus('saving');
@@ -72,7 +72,7 @@ const Editor: React.FC = () => {
       console.error('Error saving document:', error);
       setSaveStatus('error');
     }
-  }, 100), [documentId]); // Reduced debounce to 100ms for better responsiveness
+  }, 2000), [documentId]);
 
   const debouncedAnalysis = useCallback(debounce(async (text: string) => {
     if (!text.trim() || text.length < 20) {
@@ -85,11 +85,10 @@ const Editor: React.FC = () => {
       const { data, error } = await supabase.functions.invoke('analyze', {
         body: {
           text,
-          tone: selectedTone // Pass selected tone to influence analysis
+          tone: selectedTone
         }
       });
       if (error) throw error;
-      console.log('Analysis results:', data); // Debug log
       setSuggestions(data || []);
       setAnalysisStatus('complete');
     } catch (error) {
@@ -109,7 +108,6 @@ const Editor: React.FC = () => {
           suggestions: [],
           onSuggestionClick: (suggestion, element) => {
             setSelectedSuggestion(suggestion);
-            // Scroll to the suggestion
             element.scrollIntoView({ behavior: 'smooth', block: 'center' });
           },
           onSuggestionHover: (suggestion, element) => {
@@ -129,23 +127,13 @@ const Editor: React.FC = () => {
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const text = editor.getText();
+      const words = text.split(/\s+/).filter(Boolean).length;
+      const characters = text.length;
+      const readingTime = Math.ceil(words / 200);
+      setDocumentStats({ words, characters, readingTime });
 
-      // Clear existing autosave timeout
-      if (autosaveTimeoutRef.current) {
-        clearTimeout(autosaveTimeoutRef.current);
-      }
-
-      // Set new autosave timeout (5 seconds)
-      autosaveTimeoutRef.current = setTimeout(() => {
-        debouncedSave(html);
-      }, 5000);
-
-      debouncedAnalysis(text);
-    },
-    onBlur: ({ editor }) => {
-      // Save immediately on blur
-      const html = editor.getHTML();
       debouncedSave(html);
+      debouncedAnalysis(text);
     },
     editorProps: {
       attributes: {
@@ -155,7 +143,6 @@ const Editor: React.FC = () => {
     },
   });
 
-  // Update analysis extension options when suggestions or selected suggestion changes
   useEffect(() => {
     if (!editor) return;
 
@@ -163,7 +150,6 @@ const Editor: React.FC = () => {
     if (analysisExtension) {
       analysisExtension.options.suggestions = suggestions;
       analysisExtension.options.selectedSuggestion = selectedSuggestion;
-      // Force a re-render of the decorations
       editor.view.dispatch(editor.view.state.tr);
     }
   }, [suggestions, selectedSuggestion, editor]);
@@ -172,52 +158,26 @@ const Editor: React.FC = () => {
     if (!editor) return;
     const { startIndex, endIndex, suggestion, originalText } = suggestionToAccept;
 
-    // Convert character indices to ProseMirror positions
-    const doc = editor.state.doc;
-    let from = 0;
-    let to = 0;
-    let charCount = 0;
+    const { from, to } = editor.state.selection;
+    editor.chain().focus()
+      .insertContentAt({ from: startIndex, to: endIndex }, suggestion)
+      .run();
 
-    doc.descendants((node, nodePos) => {
-      if (node.isText) {
-        const nodeLength = node.text?.length || 0;
-        if (charCount <= startIndex && startIndex < charCount + nodeLength && from === 0) {
-          from = nodePos + (startIndex - charCount);
-        }
-        if (charCount <= endIndex && endIndex < charCount + nodeLength && to === 0) {
-          to = nodePos + (endIndex - charCount);
-          return false; // Stop traversal
-        }
-        charCount += nodeLength;
-      }
-      return true;
-    });
-
-    // Apply the suggestion using ProseMirror positions
-    if (from >= 0 && to > from && to <= doc.content.size) {
-      editor.chain().focus()
-        .setTextSelection({ from, to })
-        .insertContent(suggestion)
-        .run();
-    }
-
-    // Adjust indices of subsequent suggestions
     const lengthDifference = suggestion.length - originalText.length;
-
-    setSuggestions(current => {
-        return current
-            .filter(s => s.startIndex !== suggestionToAccept.startIndex)
-            .map(s => {
-                if (s.startIndex > suggestionToAccept.startIndex) {
-                    return {
-                        ...s,
-                        startIndex: s.startIndex + lengthDifference,
-                        endIndex: s.endIndex + lengthDifference,
-                    };
-                }
-                return s;
-            });
-    });
+    setSuggestions(current =>
+      current
+        .filter(s => s.startIndex !== suggestionToAccept.startIndex)
+        .map(s => {
+          if (s.startIndex > suggestionToAccept.startIndex) {
+            return {
+              ...s,
+              startIndex: s.startIndex + lengthDifference,
+              endIndex: s.endIndex + lengthDifference,
+            };
+          }
+          return s;
+        })
+    );
     setSelectedSuggestion(null);
     setHoveredSuggestion(null);
   };
@@ -230,52 +190,27 @@ const Editor: React.FC = () => {
 
   const handleNavigateSuggestions = (direction: 'prev' | 'next') => {
     if (!suggestions.length) return;
-
     const currentIndex = selectedSuggestion
       ? suggestions.findIndex(s => s.startIndex === selectedSuggestion.startIndex)
       : -1;
-
-    let newIndex: number;
-    if (direction === 'prev') {
-      newIndex = currentIndex <= 0 ? suggestions.length - 1 : currentIndex - 1;
-    } else {
-      newIndex = currentIndex >= suggestions.length - 1 ? 0 : currentIndex + 1;
-    }
-
+    let newIndex = direction === 'prev'
+      ? (currentIndex - 1 + suggestions.length) % suggestions.length
+      : (currentIndex + 1) % suggestions.length;
     setSelectedSuggestion(suggestions[newIndex]);
   };
 
-  const handleAIRewrite = () => {
-    // This would integrate with your AI rewrite functionality
-    console.log('AI Rewrite triggered with tone:', selectedTone);
-    // You can implement the actual AI rewrite logic here
+  const handleAIRewrite = (action: 'paraphrase' | 'shorten' | 'expand') => {
+    console.log(`AI Rewrite triggered with action: ${action} and tone: ${selectedTone}`);
   };
 
-  // Debug function to test suggestions
   const addTestSuggestions = () => {
     const testSuggestions: AnalysisSuggestion[] = [
-      {
-        type: 'spelling',
-        originalText: 'test',
-        suggestion: 'testing',
-        explanation: 'This is a test spelling suggestion',
-        startIndex: 0,
-        endIndex: 4
-      },
-      {
-        type: 'grammar',
-        originalText: 'is',
-        suggestion: 'are',
-        explanation: 'This is a test grammar suggestion',
-        startIndex: 5,
-        endIndex: 7
-      }
+      { type: 'spelling', originalText: 'test', suggestion: 'testing', explanation: 'This is a test spelling suggestion', startIndex: 0, endIndex: 4 },
+      { type: 'grammar', originalText: 'is', suggestion: 'are', explanation: 'This is a test grammar suggestion', startIndex: 5, endIndex: 7 }
     ];
-    console.log('Adding test suggestions:', testSuggestions);
     setSuggestions(testSuggestions);
   };
 
-  // Load document on mount
   useEffect(() => {
     if (!user || !editor) return;
     const fetchDocument = async () => {
@@ -287,7 +222,6 @@ const Editor: React.FC = () => {
           .select('*')
           .eq('id', documentId)
           .single();
-
         if (error) throw error;
         if (data) {
           setDocumentData(data);
@@ -302,7 +236,6 @@ const Editor: React.FC = () => {
         }
       } catch (error) {
         console.error('Error fetching document:', error);
-        alert('Could not load the document.');
         navigate('/dashboard');
       } finally {
         setLoading(false);
@@ -311,91 +244,47 @@ const Editor: React.FC = () => {
     fetchDocument();
   }, [documentId, navigate, user, editor, debouncedAnalysis]);
 
-  // Update title
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
     try {
       const { error } = await supabase
         .from('documents')
-        .update({
-          title: editedTitle.trim(),
-          updated_at: new Date().toISOString()
-        })
+        .update({ title: editedTitle.trim(), updated_at: new Date().toISOString() })
         .eq('id', documentId);
-
       if (error) throw error;
       setDocumentData(prev => prev ? { ...prev, title: editedTitle.trim() } : null);
       setIsEditingTitle(false);
     } catch (error) {
       console.error('Error updating title:', error);
-      alert('Failed to update title.');
     }
   };
 
-  // Cleanup autosave timeout on unmount
-  useEffect(() => {
-    return () => {
-      if (autosaveTimeoutRef.current) {
-        clearTimeout(autosaveTimeoutRef.current);
-      }
-    };
-  }, []);
-
-  if (loading) return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-        <p className="text-gray-600">Loading document...</p>
-      </div>
-    </div>
-  );
-
-  if (!documentData) return (
-    <div className="flex items-center justify-center h-screen">
-      <p className="text-gray-600">Document not found.</p>
-    </div>
-  );
-
-  const handleTitleClick = () => setIsEditingTitle(true);
-  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => setEditedTitle(e.target.value);
-  const handleTitleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') updateTitle();
-    if (e.key === 'Escape') {
-      setEditedTitle(documentData.title);
-      setIsEditingTitle(false);
-    }
-  };
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>;
+  if (!documentData) return <div className="flex items-center justify-center h-screen"><p>Document not found.</p></div>;
 
   return (
     <div className="flex h-screen bg-gray-100 font-sans">
       <PanelGroup direction="horizontal" className="flex-1">
         <Panel defaultSize={75} minSize={50}>
           <div className="flex flex-col h-full">
-            {/* Header */}
             <div className="flex-shrink-0 bg-white border-b border-gray-200 p-4">
               <div className='max-w-4xl mx-auto flex items-center justify-between'>
                 <div className="flex items-center space-x-4">
-                  <button 
-                    onClick={() => navigate('/dashboard')} 
-                    className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-                    title="Back to Dashboard"
-                  >
+                  <button onClick={() => navigate('/dashboard')} className="p-2 rounded-full hover:bg-gray-100" title="Back to Dashboard">
                     <IconArrowLeft className="w-5 h-5 text-gray-600" />
                   </button>
                   {isEditingTitle ? (
                     <input
                       type="text"
                       value={editedTitle}
-                      onChange={handleTitleChange}
+                      onChange={(e) => setEditedTitle(e.target.value)}
                       onBlur={updateTitle}
-                      onKeyDown={handleTitleKeyDown}
+                      onKeyDown={(e) => e.key === 'Enter' && updateTitle()}
                       className="text-2xl font-bold p-1 -m-1 border-b-2 border-blue-500 outline-none"
                       autoFocus
                     />
                   ) : (
-                    <h1 onClick={handleTitleClick} className="text-2xl font-bold cursor-pointer hover:text-blue-600 transition-colors">
-                      {documentData.title}
-                    </h1>
+                    <h1 onClick={() => setIsEditingTitle(true)} className="text-2xl font-bold cursor-pointer">{documentData.title}</h1>
                   )}
                 </div>
                 <div className="flex items-center space-x-4">
@@ -403,28 +292,22 @@ const Editor: React.FC = () => {
                     <span className="text-sm text-gray-500">{saveStatus}</span>
                     <IconSaveStatus status={saveStatus} />
                   </div>
-                  {lastSaveTime && (
-                    <span className="text-xs text-gray-400">
-                      Last saved: {lastSaveTime.toLocaleTimeString()}
-                    </span>
-                  )}
+                  {lastSaveTime && <span className="text-xs text-gray-400">Last saved: {lastSaveTime.toLocaleTimeString()}</span>}
                 </div>
               </div>
             </div>
 
-            {/* Toolbar */}
             {editor && (
               <EditorToolbar
                 editor={editor}
                 analysisStatus={analysisStatus}
                 selectedTone={selectedTone}
                 onToneChange={setSelectedTone}
-                onAIRewrite={handleAIRewrite}
+                onAIRewrite={(action) => handleAIRewrite(action!)}
                 onTestSuggestions={addTestSuggestions}
               />
             )}
 
-            {/* Editor Content */}
             <div className="flex-1 p-6 overflow-y-auto" ref={editorRef}>
               <div className="max-w-4xl mx-auto bg-white p-8 shadow-lg rounded-lg min-h-full">
                 <EditorContent editor={editor} />
@@ -433,7 +316,6 @@ const Editor: React.FC = () => {
           </div>
         </Panel>
 
-        {/* Suggestions Sidebar */}
         <SuggestionsSidebar
           suggestions={suggestions}
           selectedSuggestion={selectedSuggestion}
@@ -443,10 +325,10 @@ const Editor: React.FC = () => {
           analysisStatus={analysisStatus}
           isVisible={sidebarVisible}
           onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
+          documentStats={documentStats}
         />
       </PanelGroup>
 
-      {/* Inline Card for hover */}
       {hoveredSuggestion && (
         <InlineCard
           suggestion={hoveredSuggestion}

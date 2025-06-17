@@ -29,6 +29,11 @@ interface SuggestionsSidebarProps {
   analysisStatus: 'idle' | 'analyzing' | 'complete' | 'error';
   isVisible: boolean;
   onToggleVisibility: () => void;
+  documentStats: {
+    words: number;
+    characters: number;
+    readingTime: number;
+  };
 }
 
 type FilterType = 'all' | 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
@@ -41,7 +46,8 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
   selectedSuggestion,
   analysisStatus,
   isVisible,
-  onToggleVisibility
+  onToggleVisibility,
+  documentStats
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -127,39 +133,6 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
     );
   }
 
-  if (suggestions.length === 0) {
-    return (
-      <Panel defaultSize={25} minSize={20} maxSize={35}>
-        <div className="h-full bg-white border-l border-gray-200 flex flex-col">
-          <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-            <h3 className="font-semibold text-gray-900">Suggestions</h3>
-            <button
-              onClick={onToggleVisibility}
-              className="p-1 rounded hover:bg-gray-100 transition-colors"
-              title="Hide suggestions"
-            >
-              <EyeSlashIcon className="w-4 h-4 text-gray-600" />
-            </button>
-          </div>
-          <div className="flex-1 flex items-center justify-center p-6">
-            <div className="text-center">
-              <div className="text-4xl mb-4">✅</div>
-              <h3 className="font-semibold text-lg text-gray-800 mb-2">
-                {analysisStatus === 'complete' ? "You're all set!" : "No Suggestions"}
-              </h3>
-              <p className="text-sm text-gray-600">
-                {analysisStatus === 'complete' 
-                  ? "Your text looks great. No suggestions to show right now." 
-                  : "Suggestions will appear here once analysis is complete."
-                }
-              </p>
-            </div>
-          </div>
-        </div>
-      </Panel>
-    );
-  }
-
   return (
     <>
       <Panel defaultSize={25} minSize={20} maxSize={35}>
@@ -176,6 +149,16 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
               >
                 <EyeSlashIcon className="w-4 h-4 text-gray-600" />
               </button>
+            </div>
+          </div>
+
+          {/* Document Stats */}
+          <div className="p-3 border-b border-gray-200 bg-gray-50">
+            <h4 className="font-semibold text-sm mb-2">Document Stats</h4>
+            <div className="flex justify-between text-sm text-gray-600">
+              <span>Words: {documentStats.words}</span>
+              <span>Characters: {documentStats.characters}</span>
+              <span>Reading Time: {documentStats.readingTime} min</span>
             </div>
           </div>
 
@@ -232,7 +215,7 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
           <div className="flex-1 overflow-y-auto">
             {filteredSuggestions.length === 0 ? (
               <div className="p-6 text-center text-gray-500">
-                <p>No {activeFilter === 'all' ? '' : activeFilter} suggestions found.</p>
+                <p>No {activeFilter === 'all' ? '' : `${activeFilter} `}suggestions found.</p>
               </div>
             ) : (
               <div className="divide-y divide-gray-100">

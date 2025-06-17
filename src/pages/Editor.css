@@ -73,7 +73,6 @@
   cursor: pointer;
   border-radius: 2px;
   transition: background-color 0.2s ease;
-  /* Force underline to be visible */
   text-decoration: underline !important;
   text-decoration-thickness: 2px !important;
   text-underline-offset: 2px !important;
@@ -85,13 +84,8 @@
 
 /* Spelling errors - red wavy underline */
 .suggestion-spelling {
-  /* remove wavy style */
-  text-decoration: underline !important;
   text-decoration-style: solid !important;
   text-decoration-color: #ef4444 !important;
-  /* optional: adjust thickness/offset if you still want them */
-  text-decoration-thickness: 2px !important;
-  text-underline-offset: 2px !important;
 }
 
 .suggestion-spelling:hover {
@@ -100,11 +94,8 @@
 
 /* Grammar errors - blue underline */
 .suggestion-grammar {
-  text-decoration: underline !important;
   text-decoration-style: solid !important;
-  text-decoration-color: #10b981 !important; /* green */
-  text-decoration-thickness: 2px !important;
-  text-underline-offset: 2px !important;
+  text-decoration-color: #3b82f6 !important;
 }
 
 .suggestion-grammar:hover {
@@ -113,11 +104,8 @@
 
 /* Style suggestions - purple underline */
 .suggestion-style {
-  text-decoration: underline !important;
   text-decoration-style: solid !important;
   text-decoration-color: #8b5cf6 !important;
-  text-decoration-thickness: 2px !important;
-  text-underline-offset: 2px !important;
 }
 
 .suggestion-style:hover {
@@ -126,11 +114,8 @@
 
 /* Clarity suggestions - orange underline */
 .suggestion-clarity {
-  text-decoration: underline !important;
   text-decoration-style: solid !important;
   text-decoration-color: #f97316 !important;
-  text-decoration-thickness: 2px !important;
-  text-underline-offset: 2px !important;
 }
 
 .suggestion-clarity:hover {
@@ -139,11 +124,8 @@
 
 /* Tone suggestions - green underline */
 .suggestion-tone {
-  text-decoration: underline !important;
   text-decoration-style: solid !important;
   text-decoration-color: #10b981 !important;
-  text-decoration-thickness: 2px !important;
-  text-underline-offset: 2px !important;
 }
 
 .suggestion-tone:hover {
@@ -154,18 +136,6 @@
 .suggestion-selected {
   background-color: rgba(59, 130, 246, 0.2) !important;
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
-}
-
-/* Debug styles - make sure suggestions are visible */
-.suggestion::before {
-  content: '';
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background-color: currentColor;
-  opacity: 0.7;
 }
 
 /* Hide scrollbar for webkit browsers */
@@ -211,56 +181,12 @@
 @keyframes suggestionFadeIn {
   from {
     opacity: 0;
-    transform: translateY(-2px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
 .suggestion {
-  animation: suggestionFadeIn 0.2s ease-out;
-}
-
-/* Style for our Grammarly-like spell check errors */
-/*
-.spell-error {
-  text-decoration-line: underline;
-  text-decoration-color: purple;
-  text-decoration-style: wavy;
-  background-color: rgba(255, 0, 0, 0.05);
-}
-*/
-
-/* Basic styling for ProseMirror content */
-.ProseMirror p {
-  margin-bottom: 1em;
-  font-size: 0.9em;
-}
-
-.ProseMirror h1, .ProseMirror h2, .ProseMirror h3 {
-  margin: 24px 0 16px;
-  font-weight: 600;
-}
-
-.ProseMirror ul, .ProseMirror ol {
-  padding-left: 1.5rem;
-  margin-bottom: 1em;
-}
-
-.ProseMirror pre {
-  background: #1f2937; /* gray-900 */
-  color: #f9fafb; /* gray-50 */
-  font-family: 'JetBrainsMono', monospace;
-  padding: 0.75rem 1rem;
-  border-radius: 0.5rem;
-  margin-bottom: 1em;
-}
-
-.ProseMirror pre code {
-  color: inherit;
-  padding: 0;
-  background: none;
-  font-size: 0.9em;
+  animation: suggestionFadeIn 0.3s ease-in-out;
 }

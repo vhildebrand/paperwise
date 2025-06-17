@@ -54,10 +54,11 @@ const InlineCard: React.FC<InlineCardProps> = ({
 
   return (
     <div
-      className={`absolute z-50 w-80 p-4 rounded-lg shadow-lg border-2 ${getTypeColor(suggestion.type)} transform -translate-x-1/2 -translate-y-full mb-2`}
+      className={`absolute z-50 w-80 p-4 rounded-lg shadow-lg border-2 ${getTypeColor(suggestion.type)}`}
       style={{
         left: position.x,
         top: position.y,
+        transform: 'translate(-50%, calc(-100% - 10px))',
       }}
     >
       {/* Header */}
@@ -132,11 +133,12 @@ const InlineCard: React.FC<InlineCardProps> = ({
       </div>
 
       {/* Arrow pointing down */}
-      <div className="absolute top-full left-1/2 transform -translate-x-1/2">
-        <div className={`w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-current ${getTypeColor(suggestion.type).split(' ')[0]}`}></div>
-      </div>
+      <div
+        className={`absolute top-full left-1/2 w-0 h-0 border-l-8 border-r-8 border-t-8 border-transparent ${getTypeColor(suggestion.type).split(' ')[0]}`}
+        style={{ transform: 'translateX(-50%)' }}
+      ></div>
     </div>
   );
 };
 
-export default InlineCard; 
+export default InlineCard;
