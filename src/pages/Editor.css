@@ -19,7 +19,7 @@
 /* Style for our Grammarly-like spell check errors */
 .spell-error {
   text-decoration-line: underline;
-  text-decoration-color: red;
+  text-decoration-color: purple;
   text-decoration-style: wavy;
   background-color: rgba(255, 0, 0, 0.05);
 }
