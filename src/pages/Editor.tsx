@@ -6,19 +6,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabaseClient';
 import type { Database } from '../types/supabase';
-import { 
-  Bold, 
-  Italic, 
-  Underline, 
-  List, 
-  ListOrdered, 
-  AlignLeft, 
-  AlignCenter, 
-  AlignRight, 
-  Save,
-  Check,
-  AlertCircle
-} from 'lucide-react';
+import { IconSaveStatus, IconBold, IconItalic, IconUnderline, IconList, IconListOrdered } from '../assets/Icons';
+
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
@@ -229,119 +218,74 @@ const Editor: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-600"></div>
       </div>
     );
   }
 
+
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+    <div className="h-screen flex flex-col bg-gray-50 font-sans">
+      <header className="bg-white border-b border-gray-200 px-4 sm:px-6 py-3 shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            {isEditingTitle ? (
+          <div className="flex items-center space-x-4 min-w-0">
+             <button onClick={() => navigate('dashboard')} className="text-indigo-600 hover:text-indigo-800 font-medium text-sm hidden sm:block">
+                &larr; Back to Dashboard
+             </button>
+             <div className="h-6 w-px bg-gray-300 hidden sm:block"></div>
+             {isEditingTitle ? (
               <input
                 type="text"
                 value={editedTitle}
                 onChange={(e) => setEditedTitle(e.target.value)}
-                onKeyDown={handleTitleKeyDown}
+                onKeyDown={(e) => e.key === 'Enter' && updateTitle()}
                 onBlur={updateTitle}
-                className="text-2xl font-bold px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                className="text-lg font-bold px-2 py-1 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-auto"
                 autoFocus
               />
             ) : (
               <h1 
-                className="text-2xl font-bold text-gray-900 cursor-pointer hover:text-blue-600 transition-colors"
+                className="text-lg font-bold text-gray-900 cursor-pointer hover:bg-gray-100 px-2 py-1 rounded truncate"
                 onClick={() => setIsEditingTitle(true)}
               >
                 {document?.title || 'Untitled Document'}
               </h1>
             )}
-            <div className="flex items-center space-x-2">
-              {saveStatus === 'saving' && (
-                <div className="flex items-center space-x-1 text-gray-500">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-500"></div>
-                  <span className="text-sm">Saving...</span>
-                </div>
-              )}
-              {saveStatus === 'saved' && (
-                <div className="flex items-center space-x-1 text-green-600">
-                  <Check className="h-4 w-4" />
-                  <span className="text-sm">Saved</span>
-                </div>
-              )}
-              {saveStatus === 'error' && (
-                <div className="flex items-center space-x-1 text-red-600">
-                  <AlertCircle className="h-4 w-4" />
-                  <span className="text-sm">Error saving</span>
-                </div>
-              )}
-            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+             <IconSaveStatus status={saveStatus} />
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Toolbar */}
-      <div className="bg-white border-b border-gray-200 px-6 py-2">
+      <div className="bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 sm:px-6 py-2 sticky top-0 sm:top-[65px] z-10">
         <div className="flex items-center space-x-1">
-          <button
-            onClick={() => applyFormatting('bold')}
-            className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Bold"
-          >
-            <Bold className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => applyFormatting('italic')}
-            className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Italic"
-          >
-            <Italic className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => applyFormatting('underline')}
-            className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Underline"
-          >
-            <Underline className="h-4 w-4" />
-          </button>
+          {[['bold', <IconBold />], ['italic', <IconItalic />], ['underline', <IconUnderline />]].map(([format, icon]) => (
+             <button key={format as string} onClick={() => applyFormatting(format as string)} className="p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors" title={(format as string).charAt(0).toUpperCase() + (format as string).slice(1)}>
+                {icon}
+            </button>
+          ))}
           <div className="w-px h-6 bg-gray-300 mx-2"></div>
-          <button
-            onClick={() => applyFormatting('bullet-list')}
-            className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Bullet List"
-          >
-            <List className="h-4 w-4" />
-          </button>
-          <button
-            onClick={() => applyFormatting('numbered-list')}
-            className="p-2 hover:bg-gray-100 rounded transition-colors"
-            title="Numbered List"
-          >
-            <ListOrdered className="h-4 w-4" />
-          </button>
+           {[['bullet-list', <IconList />], ['numbered-list', <IconListOrdered />]].map(([format, icon]) => (
+             <button key={format as string} onClick={() => applyFormatting(format as string)} className="p-2 text-gray-600 hover:bg-gray-200 hover:text-gray-900 rounded transition-colors" title={(format as string).charAt(0).toUpperCase() + (format as string).slice(1)}>
+                {icon}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Editor */}
-      <div className="flex-1 p-6">
-        <div className="max-w-4xl mx-auto">
+      <main className="flex-1 overflow-y-auto">
+        <div className="max-w-4xl mx-auto p-4 sm:p-8 md:p-12">
           <textarea
             ref={textareaRef}
             value={editorState.content}
-            onChange={handleContentChange}
-            onKeyDown={handleKeyDown}
-            className="w-full h-full min-h-[calc(100vh-200px)] p-6 bg-white border border-gray-200 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none font-mono text-gray-900 leading-relaxed"
-            placeholder="Start writing your document..."
-            style={{ 
-              fontSize: '16px',
-              lineHeight: '1.6'
-            }}
+            onChange={(e) => setEditorState({ ...editorState, content: e.target.value })}
+            className="w-full h-full min-h-[calc(100vh-220px)] p-2 bg-transparent focus:outline-none resize-none font-serif text-lg text-gray-800 leading-relaxed placeholder-gray-400"
+            placeholder="Start writing your masterpiece..."
           />
         </div>
-      </div>
+      </main>
     </div>
   );
 };

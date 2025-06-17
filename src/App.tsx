@@ -5,7 +5,6 @@ import Dashboard from './pages/Dashboard';
 import Editor from './pages/Editor';
 import ProtectedRoute from './components/ProtectedRoute';
 import AuthInitializer from './components/AuthInitializer';
-import './App.css';
 
 function App() {
   return (
