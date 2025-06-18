@@ -153,14 +153,14 @@ export const AnalysisExtension = Extension.create<AnalysisExtensionOptions>({
               const target = event.target as HTMLElement;
               const suggestionEl = target.closest('.suggestion');
               if (suggestionEl) {
-                event.preventDefault();
-                event.stopPropagation();
+                // Only prevent default if we're actually clicking on a suggestion
                 const suggestionAttr = suggestionEl.getAttribute('data-suggestion');
                 if (suggestionAttr) {
                   try {
                     const suggestion = JSON.parse(suggestionAttr);
                     extension.options.onSuggestionClick(suggestion, suggestionEl as HTMLElement);
-                    return true;
+                    // Don't prevent default - let the editor handle the click normally
+                    return false;
                   } catch (error) {
                     console.error('Error parsing suggestion data on click:', error);
                   }

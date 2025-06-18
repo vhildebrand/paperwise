@@ -141,6 +141,7 @@ const Editor: React.FC = () => {
       }),
     ],
     content: '',
+    editable: true,
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const text = editor.getText();
@@ -265,6 +266,10 @@ const Editor: React.FC = () => {
             if (initialText) {
               debouncedAnalysis(initialText);
             }
+            // Focus the editor after content is loaded
+            setTimeout(() => {
+              editor.commands.focus();
+            }, 100);
           }
         }
       } catch (error) {
@@ -276,6 +281,26 @@ const Editor: React.FC = () => {
     };
     fetchDocument();
   }, [documentId, navigate, user, editor, debouncedAnalysis]);
+
+  // Focus editor when it's ready
+  useEffect(() => {
+    if (editor && !loading && documentData) {
+      setTimeout(() => {
+        editor.commands.focus();
+      }, 200);
+    }
+  }, [editor, loading, documentData]);
+
+  // Debug editor state
+  useEffect(() => {
+    if (editor) {
+      console.log('Editor state changed:', {
+        isEditable: editor.isEditable,
+        isFocused: editor.isFocused,
+        isEmpty: editor.isEmpty
+      });
+    }
+  }, [editor]);
 
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
@@ -341,9 +366,43 @@ const Editor: React.FC = () => {
               />
             )}
 
+            {/* Debug section - remove in production */}
+            <div className="bg-yellow-100 p-2 text-xs">
+              <button 
+                onClick={() => {
+                  if (editor) {
+                    editor.commands.focus();
+                    editor.commands.insertContent('Test text ');
+                    console.log('Editor editable:', editor.isEditable);
+                    console.log('Editor focused:', editor.isFocused);
+                  }
+                }}
+                className="bg-blue-500 text-white px-2 py-1 rounded mr-2"
+              >
+                Test Editor
+              </button>
+              <span>Editor editable: {editor?.isEditable ? 'Yes' : 'No'}</span>
+              <span className="ml-2">Editor focused: {editor?.isFocused ? 'Yes' : 'No'}</span>
+            </div>
+
             <div className="flex-1 p-6 overflow-y-auto" ref={editorRef}>
-              <div className="max-w-4xl mx-auto bg-white p-8 shadow-lg rounded-lg min-h-full">
-                <EditorContent editor={editor} />
+              <div 
+                className="max-w-4xl mx-auto bg-white p-8 shadow-lg rounded-lg min-h-full cursor-text"
+                onClick={() => {
+                  if (editor) {
+                    editor.commands.focus();
+                  }
+                }}
+                tabIndex={-1}
+                role="textbox"
+                aria-label="Document editor"
+              >
+                {editor && (
+                  <EditorContent 
+                    editor={editor} 
+                    key={editor.isEditable ? 'editable' : 'not-editable'}
+                  />
+                )}
               </div>
             </div>
           </div>
