@@ -1,34 +1,77 @@
 // src/lib/AnalysisExtension.ts
-import { Extension } from '@tiptap/core';
+import { Extension, Mark, findChildren } from '@tiptap/core';
 import { Plugin, PluginKey } from 'prosemirror-state';
 import { Decoration, DecorationSet } from 'prosemirror-view';
+import type { AnalysisSuggestion } from '../types/analysis';
 
-export interface AnalysisSuggestion {
-  type: 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
-  originalText: string;
-  suggestion: string;
-  explanation: string;
-  startIndex: number;
-  endIndex: number;
-  ruleName?: string;
-}
+/**
+ * A new Mark to tag segments of text that are intended for analysis.
+ * This is the cornerstone of the new architecture, allowing us to track
+ * specific text blocks regardless of edits elsewhere in the document.
+ */
+export const AnalysisMark = Mark.create({
+  name: 'analysisMark',
 
+  // Define attributes for the mark.
+  // 'id' is a unique identifier for the text chunk.
+  // 'state' tracks the analysis process for this chunk.
+  addAttributes() {
+    return {
+      id: {
+        default: null,
+        parseHTML: element => element.getAttribute('data-analysis-id'),
+        renderHTML: attributes => ({ 'data-analysis-id': attributes.id }),
+      },
+      state: {
+        default: 'pending', // States: 'pending', 'analyzing', 'analyzed', 'error'
+        parseHTML: element => element.getAttribute('data-analysis-state'),
+        renderHTML: attributes => ({ 'data-analysis-state': attributes.state }),
+      },
+    };
+  },
+
+  // How the mark is parsed from HTML.
+  parseHTML() {
+    return [
+      {
+        tag: 'span[data-analysis-id]',
+      },
+    ];
+  },
+
+  // How the mark is rendered into HTML. It's an invisible span.
+  renderHTML({ HTMLAttributes }) {
+    return ['span', HTMLAttributes, 0];
+  },
+});
+
+/**
+ * Options for the main AnalysisExtension.
+ */
 export interface AnalysisExtensionOptions {
   suggestions: AnalysisSuggestion[];
+  selectedSuggestion: AnalysisSuggestion | null;
   onSuggestionClick: (suggestion: AnalysisSuggestion, element: HTMLElement) => void;
   onSuggestionHover: (suggestion: AnalysisSuggestion | null, element: HTMLElement | null) => void;
-  selectedSuggestion: AnalysisSuggestion | null;
 }
 
+/**
+ * The main Tiptap extension that orchestrates the suggestion system.
+ */
 export const AnalysisExtension = Extension.create<AnalysisExtensionOptions>({
   name: 'analysis',
+
+  // Register our custom AnalysisMark.
+  addMarks() {
+    return [AnalysisMark];
+  },
 
   addOptions() {
     return {
       suggestions: [],
+      selectedSuggestion: null,
       onSuggestionClick: () => {},
       onSuggestionHover: () => {},
-      selectedSuggestion: null,
     };
   },
 
@@ -37,83 +80,74 @@ export const AnalysisExtension = Extension.create<AnalysisExtensionOptions>({
 
     return [
       new Plugin({
-        key: new PluginKey('analysis'),
+        key: new PluginKey('analysisDecorations'),
         props: {
+          /**
+           * This is the core logic that draws the underlines/highlights
+           * for each suggestion onto the editor content.
+           */
           decorations(state) {
             const decorations: Decoration[] = [];
             const { doc } = state;
-            
             const { suggestions, selectedSuggestion } = extension.options;
 
             if (!suggestions.length) {
               return DecorationSet.empty;
             }
 
-            // Helper function to convert character index to ProseMirror position
-            const charToPos = (charIndex: number): number => {
-              let pos = 0;
-              let charCount = 0;
-              
-              doc.descendants((node, nodePos) => {
-                if (node.isText) {
-                  const nodeLength = node.text?.length || 0;
-                  if (charCount <= charIndex && charIndex < charCount + nodeLength) {
-                    pos = nodePos + (charIndex - charCount);
-                    return false; // Stop traversal
-                  }
-                  charCount += nodeLength;
-                }
-                return true;
-              });
-              
-              return pos;
-            };
+            // Find all nodes in the document that have our analysis mark.
+            // These are the chunks of text we are interested in.
+            const analysisChunks = findChildren(doc, node =>
+              node.marks.some(mark => mark.type.name === AnalysisMark.name)
+            );
 
-            // Process each suggestion
+            // Process each suggestion and create a decoration for it.
             suggestions.forEach((suggestion) => {
-              try {
-                // Convert character indices to ProseMirror positions
-                const from = charToPos(suggestion.startIndex);
-                const to = charToPos(suggestion.endIndex);
-                
-                console.log(`Processing suggestion:`, {
-                  type: suggestion.type,
-                  originalText: suggestion.originalText,
-                  startIndex: suggestion.startIndex,
-                  endIndex: suggestion.endIndex,
-                  from,
-                  to,
-                  docSize: doc.content.size
-                });
-                
-                // Validate positions
-                if (from >= 0 && to > from && to <= doc.content.size) {
-                  // Check if this suggestion is selected
-                  const isSelected = selectedSuggestion && 
-                    selectedSuggestion.startIndex === suggestion.startIndex &&
-                    selectedSuggestion.endIndex === suggestion.endIndex;
-                  
-                  const className = `suggestion suggestion-${suggestion.type} ${isSelected ? 'suggestion-selected' : ''}`;
+              // Find the text chunk that this suggestion belongs to.
+              const chunk = analysisChunks.find(c =>
+                c.node.marks.some(m => m.attrs.id === suggestion.chunkId)
+              );
 
-                  decorations.push(
-                    Decoration.inline(from, to, {
-                      class: className,
-                      'data-suggestion': JSON.stringify(suggestion),
-                    })
-                  );
-                  
-                  console.log(`Created decoration for:`, suggestion.originalText, `at positions ${from}-${to}`);
-                } else {
-                  console.warn(`Invalid positions for suggestion:`, suggestion.originalText, `from: ${from}, to: ${to}`);
-                }
-              } catch (error) {
-                console.warn('Error processing suggestion:', suggestion, error);
+              if (!chunk) {
+                console.warn(`Could not find chunk for suggestion:`, suggestion);
+                return;
               }
+
+              // The 'from' and 'to' positions are now reliably calculated:
+              // The start position of the chunk in the document, plus the
+              // suggestion's start/end index relative to that chunk.
+              const chunkStartPos = chunk.pos;
+              const from = chunkStartPos + suggestion.startIndex;
+              const to = chunkStartPos + suggestion.endIndex;
+
+              // Validate the calculated positions.
+              if (from < chunk.pos || to > chunk.pos + chunk.node.nodeSize) {
+                  console.warn('Suggestion indices are out of bounds for the chunk.', { suggestion, chunk });
+                  return;
+              }
+
+              // Determine if this suggestion is currently selected to apply a specific class.
+              const isSelected = selectedSuggestion &&
+                selectedSuggestion.chunkId === suggestion.chunkId &&
+                selectedSuggestion.startIndex === suggestion.startIndex;
+
+              const className = `suggestion suggestion-${suggestion.type} ${isSelected ? 'suggestion-selected' : ''}`;
+
+              // Create the inline decoration (the underline/highlight).
+              decorations.push(
+                Decoration.inline(from, to, {
+                  class: className,
+                  'data-suggestion': JSON.stringify(suggestion),
+                })
+              );
             });
 
             return DecorationSet.create(doc, decorations);
           },
           
+          /**
+           * Handles DOM events to make the suggestions interactive.
+           */
           handleDOMEvents: {
             mousedown: (view, event: Event) => {
               const target = event.target as HTMLElement;
@@ -128,7 +162,7 @@ export const AnalysisExtension = Extension.create<AnalysisExtensionOptions>({
                     extension.options.onSuggestionClick(suggestion, suggestionEl as HTMLElement);
                     return true;
                   } catch (error) {
-                    console.warn('Error parsing suggestion data:', error);
+                    console.error('Error parsing suggestion data on click:', error);
                   }
                 }
               }
@@ -136,25 +170,32 @@ export const AnalysisExtension = Extension.create<AnalysisExtensionOptions>({
             },
             
             mouseover: (view, event: Event) => {
-              const target = event.target as HTMLElement;
-              const suggestionEl = target.closest('.suggestion');
-              if (suggestionEl) {
-                const suggestionAttr = suggestionEl.getAttribute('data-suggestion');
-                if (suggestionAttr) {
-                  try {
-                    const suggestion = JSON.parse(suggestionAttr);
-                    extension.options.onSuggestionHover(suggestion, suggestionEl as HTMLElement);
-                  } catch (error) {
-                    console.warn('Error parsing suggestion data on hover:', error);
+                const target = event.target as HTMLElement;
+                const suggestionEl = target.closest('.suggestion');
+                if (suggestionEl) {
+                  const suggestionAttr = suggestionEl.getAttribute('data-suggestion');
+                  if (suggestionAttr) {
+                    try {
+                      const suggestion = JSON.parse(suggestionAttr);
+                      extension.options.onSuggestionHover(suggestion, suggestionEl as HTMLElement);
+                    } catch (error) {
+                      console.warn('Error parsing suggestion data on hover:', error);
+                    }
                   }
                 }
-              }
-              return false;
+                return false;
             },
             
-            mouseleave: () => {
-              extension.options.onSuggestionHover(null, null);
-              return false;
+            // Clear hover state when the mouse leaves a suggestion.
+            mouseout: (view, event: Event) => {
+                const target = event.target as HTMLElement;
+                if (target.closest('.suggestion')) {
+                    const relatedTarget = (event as MouseEvent).relatedTarget as HTMLElement;
+                    if (!relatedTarget || !relatedTarget.closest('.suggestion')) {
+                        extension.options.onSuggestionHover(null, null);
+                    }
+                }
+                return false;
             }
           },
         },
@@ -163,7 +204,11 @@ export const AnalysisExtension = Extension.create<AnalysisExtensionOptions>({
   },
 
   onUpdate() {
-    // Force re-render when options change
-    this.editor.view.dispatch(this.editor.view.state.tr);
+    // This can be used to force a re-render if options change,
+    // though Tiptap's reactivity often handles this.
+    // Forcing a dispatch can be useful for debugging or complex cases.
+    if (this.editor.isFocused) {
+        this.editor.view.dispatch(this.editor.view.state.tr);
+    }
   },
 });

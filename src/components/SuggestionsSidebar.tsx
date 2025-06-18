@@ -9,16 +9,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon
 } from '@heroicons/react/24/outline';
-
-type AnalysisSuggestion = {
-  type: 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
-  originalText: string;
-  suggestion: string;
-  explanation: string;
-  startIndex: number;
-  endIndex: number;
-  ruleName?: string;
-};
+import type { AnalysisSuggestion, DocumentStats, AnalysisStatus } from '../types/analysis';
 
 interface SuggestionsSidebarProps {
   suggestions: AnalysisSuggestion[];
@@ -26,14 +17,10 @@ interface SuggestionsSidebarProps {
   onDismiss: (suggestion: AnalysisSuggestion) => void;
   onSelect: (suggestion: AnalysisSuggestion | null) => void;
   selectedSuggestion: AnalysisSuggestion | null;
-  analysisStatus: 'idle' | 'analyzing' | 'complete' | 'error';
+  analysisStatus: AnalysisStatus;
   isVisible: boolean;
   onToggleVisibility: () => void;
-  documentStats: {
-    words: number;
-    characters: number;
-    readingTime: number;
-  };
+  documentStats: DocumentStats;
 }
 
 type FilterType = 'all' | 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';

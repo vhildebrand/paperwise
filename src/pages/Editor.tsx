@@ -2,7 +2,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
-import { supabase } from '../lib/supabaseClient';
+import { supabase } from '../lib/supabase';
+import { analyzeText, validateTextForAnalysis } from '../lib/analyzeFunction';
+import type { AnalysisSuggestion, DocumentStats, AnalysisStatus } from '../types/analysis';
 import type { Database } from '../types/supabase';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -15,7 +17,7 @@ import SuggestionsSidebar from '../components/SuggestionsSidebar';
 import InlineCard from '../components/InlineCard';
 import './Editor.css';
 
-import { AnalysisExtension, type AnalysisSuggestion } from '../lib/AnalysisExtension';
+import { AnalysisExtension } from '../lib/AnalysisExtension';
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
@@ -75,27 +77,42 @@ const Editor: React.FC = () => {
   }, 2000), [documentId]);
 
   const debouncedAnalysis = useCallback(debounce(async (text: string) => {
-    if (!text.trim() || text.length < 20) {
+    // Validate text before analysis
+    const validation = validateTextForAnalysis(text);
+    if (!validation.valid) {
       setSuggestions([]);
       setAnalysisStatus('idle');
       return;
     }
+
     setAnalysisStatus('analyzing');
     try {
-      const { data, error } = await supabase.functions.invoke('analyze', {
-        body: {
-          text,
-          tone: selectedTone
-        }
+      const result = await analyzeText({
+        text,
+        tone: selectedTone
       });
-      if (error) throw error;
-      setSuggestions(data || []);
+
+      if (result.error) {
+        console.error('Analysis error:', result.error);
+        setAnalysisStatus('error');
+        // Show user-friendly error message
+        if (result.error.includes('Rate limit')) {
+          // Could show a toast notification here
+          console.warn('Rate limit exceeded:', result.rateLimitRemaining);
+        } else if (result.error.includes('Authentication')) {
+          // Redirect to login if authentication failed
+          navigate('/login');
+        }
+        return;
+      }
+
+      setSuggestions(result.data || []);
       setAnalysisStatus('complete');
     } catch (error) {
       console.error('Error analyzing document:', error);
       setAnalysisStatus('error');
     }
-  }, 2000), [selectedTone]);
+  }, 2000), [selectedTone, navigate]);
 
   const editor = useEditor({
     extensions: [
@@ -205,8 +222,24 @@ const Editor: React.FC = () => {
 
   const addTestSuggestions = () => {
     const testSuggestions: AnalysisSuggestion[] = [
-      { type: 'spelling', originalText: 'test', suggestion: 'testing', explanation: 'This is a test spelling suggestion', startIndex: 0, endIndex: 4 },
-      { type: 'grammar', originalText: 'is', suggestion: 'are', explanation: 'This is a test grammar suggestion', startIndex: 5, endIndex: 7 }
+      { 
+        type: 'spelling', 
+        originalText: 'test', 
+        suggestion: 'testing', 
+        explanation: 'This is a test spelling suggestion', 
+        startIndex: 0, 
+        endIndex: 4,
+        chunkId: 'test_chunk_1'
+      },
+      { 
+        type: 'grammar', 
+        originalText: 'is', 
+        suggestion: 'are', 
+        explanation: 'This is a test grammar suggestion', 
+        startIndex: 5, 
+        endIndex: 7,
+        chunkId: 'test_chunk_2'
+      }
     ];
     setSuggestions(testSuggestions);
   };

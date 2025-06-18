@@ -1,15 +1,6 @@
 import React from 'react';
 import { CheckIcon, XMarkIcon, ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
-
-type AnalysisSuggestion = {
-  type: 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
-  originalText: string;
-  suggestion: string;
-  explanation: string;
-  startIndex: number;
-  endIndex: number;
-  ruleName?: string;
-};
+import type { AnalysisSuggestion } from '../types/analysis';
 
 interface InlineCardProps {
   suggestion: AnalysisSuggestion;
