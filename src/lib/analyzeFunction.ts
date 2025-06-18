@@ -20,11 +20,8 @@ export async function analyzeText(request: AnalyzeRequest): Promise<AnalyzeRespo
       return { error: 'Authentication required. Please log in again.' };
     }
 
-    // Get the function URL based on environment
-    const isDevelopment = import.meta.env.DEV;
-    const functionUrl = isDevelopment 
-      ? 'http://localhost:54321/functions/v1/analyze'
-      : `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze`;
+    // Get the function URL - always use the remote Supabase URL
+    const functionUrl = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/analyze`;
 
     // Make the request with proper authentication
     const response = await fetch(functionUrl, {
