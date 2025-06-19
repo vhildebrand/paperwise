@@ -23,6 +23,9 @@ import EditorToolbar from '../components/EditorToolbar';
 import SuggestionsSidebar from '../components/SuggestionsSidebar';
 import './Editor.css';
 
+import { Decoration, DecorationSet } from 'prosemirror-view';
+import { Node } from 'prosemirror-model';
+
 type Document = Database['public']['Tables']['documents']['Row'];
 
 function debounce<T extends (...args: any[]) => any>(
@@ -53,6 +56,8 @@ const Editor: React.FC = () => {
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0 });
+  const [decorations, setDecorations] = useState(DecorationSet.empty);
+  const spellCheckWorkerRef = useRef<Worker | null>(null);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -78,6 +83,8 @@ const Editor: React.FC = () => {
     }
   }, 2000), [documentId]);
 
+  
+
 
   const editor = useEditor({
     extensions: [
@@ -101,24 +108,141 @@ const Editor: React.FC = () => {
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const text = editor.getText();
+      const doc = editor.state.doc;
       const words = text.split(/\s+/).filter(Boolean).length;
       const characters = text.length;
       const readingTime = Math.ceil(words / 200);
       setDocumentStats({ words, characters, readingTime });
       debouncedSave(html);
+      debouncedSpellCheck(text, doc);
     },
     editorProps: {
       attributes: {
         class: 'prose prose-lg focus:outline-none max-w-full mx-auto',
         spellcheck: 'false',
       },
+      decorations: () => decorations,
     },
   });
+
+  const processSpellCheckResults = useCallback((results: any[], doc: Node) => {
+    console.log('Processing spell check results:', results);
+    const newSuggestions: AnalysisSuggestion[] = [];
+    const newDecorations: Decoration[] = [];
+
+    // Create a map of misspelled words for quick lookup
+    const misspelledWords = new Map(results.map(r => [r.word.toLowerCase(), r.suggestions]));
+
+    doc.descendants((node, pos) => {
+        if (!node.isText) {
+            return;
+        }
+
+        const text = node.text || '';
+        const words = text.match(/\b[a-zA-Z']+\b/g) || [];
+        
+        let currentPos = pos;
+        for (const word of words) {
+            const wordStart = text.indexOf(word, currentPos - pos);
+            if (wordStart === -1) continue;
+            
+            const startIndex = pos + wordStart;
+            const endIndex = startIndex + word.length;
+            
+            // Check if this word is misspelled
+            if (misspelledWords.has(word.toLowerCase())) {
+                const suggestions = misspelledWords.get(word.toLowerCase()) || [];
+                
+                // Create a suggestion for the sidebar
+                newSuggestions.push({
+                    type: 'spelling',
+                    originalText: word,
+                    suggestion: suggestions[0] || word,
+                    explanation: `Possible spelling mistake. Suggestions: ${suggestions.join(', ')}`,
+                    startIndex,
+                    endIndex,
+                    chunkId: `${startIndex}-${endIndex}`
+                });
+
+                // Create a decoration for inline highlighting
+                newDecorations.push(
+                    Decoration.inline(startIndex, endIndex, {
+                        class: 'suggestion suggestion-spelling',
+                    })
+                );
+            }
+            
+            currentPos = pos + wordStart + word.length;
+        }
+    });
+    
+    console.log('Created suggestions:', newSuggestions.length, 'decorations:', newDecorations.length);
+    
+    // Combine with other suggestions if any (e.g., grammar)
+    setSuggestions(current => [
+        ...current.filter(s => s.type !== 'spelling'), 
+        ...newSuggestions
+    ]);
+    
+    // Update Tiptap decorations
+    if(editor) {
+      setDecorations(DecorationSet.create(doc, newDecorations));
+    }
+
+  }, [editor]);
+
+  const debouncedSpellCheck = useCallback(debounce((text: string, doc: Node) => {
+      if (spellCheckWorkerRef.current) {
+          spellCheckWorkerRef.current.postMessage({ text });
+      }
+  }, 1000), []);
+  
+  // Initialize worker
+  useEffect(() => {
+    spellCheckWorkerRef.current = new Worker(new URL('../workers/spellcheck.worker.ts', import.meta.url), { type: 'module' });
+    
+    spellCheckWorkerRef.current.onmessage = (event) => {
+        const { type, results, error } = event.data;
+        if (type === 'INIT_COMPLETE') {
+            console.log('Spell checker worker initialized successfully');
+        } else if (type === 'INIT_ERROR') {
+            console.error('Spell checker worker initialization failed:', error);
+        } else if (type === 'SPELL_RESULT' && editor) {
+            processSpellCheckResults(results, editor.state.doc);
+        } else if (type === 'PROCESS_ERROR') {
+            console.error('Spell checker processing error:', error);
+        }
+    };
+    
+    spellCheckWorkerRef.current.onerror = (error) => {
+        console.error('Spell checker worker error:', error);
+    };
+    
+    return () => {
+        spellCheckWorkerRef.current?.terminate();
+    };
+  }, [editor, processSpellCheckResults]);
+
 
 
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
-    console.log('Accepting suggestion:', suggestionToAccept);
+    
+    const { startIndex, endIndex, suggestion } = suggestionToAccept;
+
+    editor.chain()
+        .focus()
+        .insertContentAt({ from: startIndex, to: endIndex }, suggestion)
+        .run();
+    
+    // Remove the accepted suggestion from the list
+    setSuggestions(current => current.filter(s => s.startIndex !== suggestionToAccept.startIndex));
+    
+    // After accepting, you might want to re-run the check
+    const newText = editor.getText();
+    const newDoc = editor.state.doc;
+    debouncedSpellCheck(newText, newDoc);
+
     setSelectedSuggestion(null);
   };
 
@@ -162,7 +286,7 @@ const Editor: React.FC = () => {
             const initialText = editor.getText();
             if (initialText) {
               //debouncedAnalysis(initialText);
-              //debouncedSpellCheck(initialText);
+              debouncedSpellCheck(initialText, editor.state.doc);
             }
             // Focus the editor after content is loaded
             setTimeout(() => {
@@ -178,7 +302,7 @@ const Editor: React.FC = () => {
       }
     };
     fetchDocument();
-  }, [documentId, navigate, user, editor]);
+  }, [documentId, navigate, user, editor, debouncedSpellCheck]);
 
   // Focus editor when it's ready
   useEffect(() => {
