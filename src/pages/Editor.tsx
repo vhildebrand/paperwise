@@ -3,18 +3,24 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabase';
-import { analyzeText, validateTextForAnalysis } from '../lib/analyzeFunction';
 import type { AnalysisSuggestion, DocumentStats, AnalysisStatus } from '../types/analysis';
 import type { Database } from '../types/supabase';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
+import Strike from '@tiptap/extension-strike';
+import Table from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableCell from '@tiptap/extension-table-cell';
+import TableHeader from '@tiptap/extension-table-header';
+import History from '@tiptap/extension-history';
+import { MathExtension } from '@aarkue/tiptap-math-extension';
+import 'katex/dist/katex.min.css';
 import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import { IconSaveStatus, IconArrowLeft } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
-import SuggestionsSidebar from '../components/SuggestionsSidebar';
-import InlineCard from '../components/InlineCard';
+//import SuggestionsSidebar from '../components/SuggestionsSidebar';
 import './Editor.css';
 
 import { AnalysisExtension } from '../lib/AnalysisExtension';
@@ -45,8 +51,6 @@ const Editor: React.FC = () => {
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
   const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
-  const [hoveredSuggestion, setHoveredSuggestion] = useState<AnalysisSuggestion | null>(null);
-  const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
@@ -76,6 +80,7 @@ const Editor: React.FC = () => {
     }
   }, 2000), [documentId]);
 
+  /*
   const debouncedAnalysis = useCallback(debounce(async (text: string) => {
     // Validate text before analysis
     const validation = validateTextForAnalysis(text);
@@ -86,6 +91,7 @@ const Editor: React.FC = () => {
     }
 
     setAnalysisStatus('analyzing');
+
     try {
       const result = await analyzeText({
         text,
@@ -113,29 +119,33 @@ const Editor: React.FC = () => {
       setAnalysisStatus('error');
     }
   }, 2000), [selectedTone, navigate]);
+  */
+
+  const debouncedSpellCheck = useCallback(debounce(async (text: string) => {
+    console.log('Spell checking text:', text);
+  }, 2000), []);
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        history: false,
+        history: false, // Using the History extension instead
         heading: { levels: [1, 2, 3] }
       }),
       Underline,
+      Strike,
+      Table.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      History,
+      MathExtension,
       AnalysisExtension.configure({
           suggestions: [],
           onSuggestionClick: (suggestion, element) => {
             setSelectedSuggestion(suggestion);
             element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          },
-          onSuggestionHover: (suggestion, element) => {
-            setHoveredSuggestion(suggestion);
-            if (element && suggestion) {
-              const rect = element.getBoundingClientRect();
-              setHoverPosition({
-                x: rect.left + rect.width / 2,
-                y: rect.top
-              });
-            }
           },
           selectedSuggestion: null,
       }),
@@ -151,7 +161,8 @@ const Editor: React.FC = () => {
       setDocumentStats({ words, characters, readingTime });
 
       debouncedSave(html);
-      debouncedAnalysis(text);
+      //debouncedAnalysis(text);
+      debouncedSpellCheck(text);
     },
     editorProps: {
       attributes: {
@@ -197,13 +208,11 @@ const Editor: React.FC = () => {
         })
     );
     setSelectedSuggestion(null);
-    setHoveredSuggestion(null);
   };
 
   const handleDismissSuggestion = (suggestionToDismiss: AnalysisSuggestion) => {
     setSuggestions(current => current.filter(s => s.startIndex !== suggestionToDismiss.startIndex));
     setSelectedSuggestion(null);
-    setHoveredSuggestion(null);
   };
 
   const handleNavigateSuggestions = (direction: 'prev' | 'next') => {
@@ -219,30 +228,6 @@ const Editor: React.FC = () => {
 
   const handleAIRewrite = (action: 'paraphrase' | 'shorten' | 'expand') => {
     console.log(`AI Rewrite triggered with action: ${action} and tone: ${selectedTone}`);
-  };
-
-  const addTestSuggestions = () => {
-    const testSuggestions: AnalysisSuggestion[] = [
-      { 
-        type: 'spelling', 
-        originalText: 'test', 
-        suggestion: 'testing', 
-        explanation: 'This is a test spelling suggestion', 
-        startIndex: 0, 
-        endIndex: 4,
-        chunkId: 'test_chunk_1'
-      },
-      { 
-        type: 'grammar', 
-        originalText: 'is', 
-        suggestion: 'are', 
-        explanation: 'This is a test grammar suggestion', 
-        startIndex: 5, 
-        endIndex: 7,
-        chunkId: 'test_chunk_2'
-      }
-    ];
-    setSuggestions(testSuggestions);
   };
 
   useEffect(() => {
@@ -264,7 +249,8 @@ const Editor: React.FC = () => {
             editor.commands.setContent(data.content || '', false);
             const initialText = editor.getText();
             if (initialText) {
-              debouncedAnalysis(initialText);
+              //debouncedAnalysis(initialText);
+              debouncedSpellCheck(initialText);
             }
             // Focus the editor after content is loaded
             setTimeout(() => {
@@ -280,7 +266,7 @@ const Editor: React.FC = () => {
       }
     };
     fetchDocument();
-  }, [documentId, navigate, user, editor, debouncedAnalysis]);
+  }, [documentId, navigate, user, editor]);
 
   // Focus editor when it's ready
   useEffect(() => {
@@ -355,6 +341,7 @@ const Editor: React.FC = () => {
               </div>
             </div>
 
+            
             {editor && (
               <EditorToolbar
                 editor={editor}
@@ -362,28 +349,9 @@ const Editor: React.FC = () => {
                 selectedTone={selectedTone}
                 onToneChange={setSelectedTone}
                 onAIRewrite={(action) => handleAIRewrite(action!)}
-                onTestSuggestions={addTestSuggestions}
               />
             )}
-
-            {/* Debug section - remove in production */}
-            <div className="bg-yellow-100 p-2 text-xs">
-              <button 
-                onClick={() => {
-                  if (editor) {
-                    editor.commands.focus();
-                    editor.commands.insertContent('Test text ');
-                    console.log('Editor editable:', editor.isEditable);
-                    console.log('Editor focused:', editor.isFocused);
-                  }
-                }}
-                className="bg-blue-500 text-white px-2 py-1 rounded mr-2"
-              >
-                Test Editor
-              </button>
-              <span>Editor editable: {editor?.isEditable ? 'Yes' : 'No'}</span>
-              <span className="ml-2">Editor focused: {editor?.isFocused ? 'Yes' : 'No'}</span>
-            </div>
+            
 
             <div className="flex-1 p-6 overflow-y-auto" ref={editorRef}>
               <div 
@@ -407,8 +375,8 @@ const Editor: React.FC = () => {
             </div>
           </div>
         </Panel>
-
-        <SuggestionsSidebar
+        
+        {/* <SuggestionsSidebar
           suggestions={suggestions}
           selectedSuggestion={selectedSuggestion}
           onAccept={handleAcceptSuggestion}
@@ -418,20 +386,9 @@ const Editor: React.FC = () => {
           isVisible={sidebarVisible}
           onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
           documentStats={documentStats}
-        />
+        /> */}
       </PanelGroup>
 
-      {hoveredSuggestion && (
-        <InlineCard
-          suggestion={hoveredSuggestion}
-          onAccept={handleAcceptSuggestion}
-          onDismiss={handleDismissSuggestion}
-          onNavigate={handleNavigateSuggestions}
-          hasPrevious={suggestions.length > 1}
-          hasNext={suggestions.length > 1}
-          position={hoverPosition}
-        />
-      )}
     </div>
   );
 };

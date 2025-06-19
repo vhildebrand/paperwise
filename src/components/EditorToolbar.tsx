@@ -1,11 +1,12 @@
 // src/components/EditorToolbar.tsx
-import React, { useState } from 'react';
+import React from 'react';
 import type { Editor } from '@tiptap/react';
 import { Menu, Transition } from '@headlessui/react';
 import { ChevronDownIcon, SparklesIcon } from '@heroicons/react/24/outline';
 import {
   IconBold, IconItalic, IconUnderline, IconList, IconListOrdered,
-  IconH1, IconH2, IconBlockquote, IconCode, IconSaveStatus
+  IconH1, IconH2, IconBlockquote, IconCode, IconSaveStatus,
+  IconStrikethrough, IconTable, IconLatex, IconUndo, IconRedo
 } from '../assets/Icons';
 
 interface Props {
@@ -32,6 +33,7 @@ const ToolbarButton = ({ onClick, disabled, title, isActive, children, className
 
 const Divider = () => <div className="w-px h-6 bg-gray-300 mx-2"></div>;
 
+// ... (ToneSelector and AIRewriteMenu components remain the same)
 const ToneSelector = ({ selectedTone, onToneChange }: { selectedTone: string; onToneChange: (tone: string) => void }) => {
   const tones = [
     { value: 'formal', label: 'Formal', description: 'Professional and academic' },
@@ -139,6 +141,7 @@ const AIRewriteMenu = ({ onAction }: {
   );
 };
 
+
 const EditorToolbar: React.FC<Props> = ({ 
   editor, 
   analysisStatus, 
@@ -160,6 +163,23 @@ const EditorToolbar: React.FC<Props> = ({
       <div className="flex items-center justify-between flex-wrap gap-2">
         {/* Left side - Formatting tools */}
         <div className="flex items-center space-x-1 flex-wrap">
+        <div className="flex items-center space-x-1">
+            <ToolbarButton
+                onClick={() => editor.chain().focus().undo().run()}
+                disabled={!editor.can().undo()}
+                title="Undo (Ctrl+Z)"
+            >
+                <IconUndo />
+            </ToolbarButton>
+            <ToolbarButton
+                onClick={() => editor.chain().focus().redo().run()}
+                disabled={!editor.can().redo()}
+                title="Redo (Ctrl+Y)"
+            >
+                <IconRedo />
+            </ToolbarButton>
+        </div>
+        <Divider />
           {/* Text formatting */}
           <div className="flex items-center space-x-1">
             <ToolbarButton
@@ -185,6 +205,14 @@ const EditorToolbar: React.FC<Props> = ({
               title="Underline (Ctrl+U)"
             >
               <IconUnderline />
+            </ToolbarButton>
+            <ToolbarButton
+              onClick={() => editor.chain().focus().toggleStrike().run()}
+              disabled={!editor.can().chain().focus().toggleStrike().run()}
+              isActive={editor.isActive('strike')}
+              title="Strikethrough (Ctrl+Shift+X)"
+            >
+              <IconStrikethrough />
             </ToolbarButton>
           </div>
 
@@ -239,6 +267,20 @@ const EditorToolbar: React.FC<Props> = ({
               title="Code Block"
             >
               <IconCode />
+            </ToolbarButton>
+            <ToolbarButton
+                onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}
+                title="Insert Table"
+            >
+                <IconTable />
+            </ToolbarButton>
+            <ToolbarButton
+                // --- THIS IS THE FIX ---
+                onClick={() => editor.chain().focus().insertContent('$$  $$').run()}
+                // -----------------------
+                title="Insert LaTeX Block"
+            >
+                <IconLatex />
             </ToolbarButton>
           </div>
 

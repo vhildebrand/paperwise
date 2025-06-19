@@ -1,4 +1,4 @@
-/* index.css */
+/* Editor.css */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -32,11 +32,22 @@
   margin: 0.83em 0;
 }
 
+/* --- FIX FOR LISTS --- */
 .ProseMirror ul,
 .ProseMirror ol {
   padding-left: 1.5em;
-  margin: 0.5em 0;
+  margin: 1em 0;
 }
+
+.ProseMirror ul {
+    list-style-type: disc;
+}
+
+.ProseMirror ol {
+    list-style-type: decimal;
+}
+/* -------------------- */
+
 
 .ProseMirror blockquote {
   border-left: 4px solid #e5e7eb;
@@ -66,6 +77,56 @@
   background-color: transparent;
   padding: 0;
 }
+
+
+/* --- FIX FOR TABLES --- */
+.ProseMirror table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  border: 1px solid #e5e7eb;
+}
+
+.ProseMirror th,
+.ProseMirror td {
+  border: 1px solid #e5e7eb;
+  padding: 0.5em 0.75em;
+  vertical-align: top;
+}
+
+.ProseMirror th {
+  font-weight: bold;
+  background-color: #f9fafb;
+  text-align: left;
+}
+/* -------------------- */
+
+
+/* --- FIX FOR EQUATIONS --- */
+.ProseMirror .math-node {
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: background-color 0.2s;
+}
+
+.ProseMirror .math-node:hover {
+    background-color: #f3f4f6;
+}
+
+.ProseMirror .katex-display {
+    display: block;
+    text-align: center;
+    padding: 1em 0;
+    margin: 0.5em 0;
+}
+
+.ProseMirror .katex {
+    font-size: 1.1em;
+    text-rendering: auto;
+}
+/* -------------------- */
+
 
 /* Suggestion underlines - Enhanced for better visibility */
 .suggestion {

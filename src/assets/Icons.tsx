@@ -168,3 +168,48 @@ export const IconShieldCheck = ({ className = 'w-5 h-5' }) => (
     <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
   </svg>
 );
+
+
+
+export const IconStrikethrough = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+    <path d="M16 4H9a3 3 0 0 0-2.83 4" />
+    <path d="M14 12a4 4 0 0 1-4.5 4H6" />
+    <line x1="4" y1="12" x2="20" y2="12" />
+  </svg>
+);
+
+export const IconTable = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <path d="M12 3v18" />
+        <rect width="18" height="18" x="3" y="3" rx="2" />
+        <path d="M3 9h18" />
+        <path d="M3 15h18" />
+    </svg>
+);
+
+export const IconLatex = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <path d="M9 4v16M9 4l3 3M9 4L6 7" />
+        <path d="M14 4h4" />
+        <path d="M14 8h4" />
+        <path d="M14 12h4" />
+        <path d="M14 16h4" />
+        <path d="m11 16 2.5-4L11 8" />
+        <path d="M18 4v10" />
+    </svg>
+);
+
+export const IconUndo = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <path d="M3 10v6h6" />
+        <path d="M21 10a9 9 0 0 0-14.49-5.49L3 10" />
+    </svg>
+);
+
+export const IconRedo = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5">
+        <path d="M21 10v6h-6" />
+        <path d="M3 10a9 9 0 0 1 14.49-5.49L21 10" />
+    </svg>
+);
