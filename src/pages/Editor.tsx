@@ -50,7 +50,6 @@ const Editor: React.FC = () => {
   const [editedTitle, setEditedTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
-  const [grammarSuggestions, setGrammarSuggestions] = useState<AnalysisSuggestion[]>([]); // For LLM
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle'); //
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -196,17 +195,37 @@ const Editor: React.FC = () => {
   
     const newSuggestions: AnalysisSuggestion[] = [];
     const newDecorations: Decoration[] = [];
-    let lastIndex = 0;
-  
+    const doc = editor.state.doc;
+    
     for (const res of results) {
-      // Find the start index of the original text. Search from the last found position.
-      const startIndex = text.indexOf(res.originalText, lastIndex);
+      // Use a more robust method to find text positions
+      let startIndex = -1;
+      let endIndex = -1;
+      let textPos = 0;
+      
+      // Walk through the document to find the exact text match
+      doc.descendants((node, pos) => {
+        if (node.isText) {
+          const nodeText = node.text || '';
+          const nodeLength = nodeText.length;
+          
+          // Check if this text node contains our target text
+          const textInNode = text.substring(textPos, textPos + nodeLength);
+          const matchIndex = textInNode.indexOf(res.originalText);
+          
+          if (matchIndex !== -1) {
+            startIndex = textPos + matchIndex;
+            endIndex = startIndex + res.originalText.length;
+          }
+          
+          textPos += nodeLength;
+        }
+      });
+      
       if (startIndex === -1) {
         console.warn(`Could not find text "${res.originalText}" in document.`);
         continue;
       }
-      const endIndex = startIndex + res.originalText.length;
-      lastIndex = endIndex; // Ensure we don't find the same text again
   
       const suggestion: AnalysisSuggestion = {
         type: res.type,
@@ -220,8 +239,29 @@ const Editor: React.FC = () => {
       newSuggestions.push(suggestion);
   
       // Create decoration based on the suggestion type
+      // Convert text position to document position for decoration
+      let docStartPos = 0;
+      let docEndPos = 0;
+      let docTextPos = 0;
+      
+      doc.descendants((node, pos) => {
+        if (node.isText) {
+          const nodeText = node.text || '';
+          const nodeLength = nodeText.length;
+          
+          if (docTextPos <= startIndex && startIndex < docTextPos + nodeLength) {
+            docStartPos = pos + (startIndex - docTextPos);
+          }
+          if (docTextPos <= endIndex && endIndex <= docTextPos + nodeLength) {
+            docEndPos = pos + (endIndex - docTextPos);
+          }
+          
+          docTextPos += nodeLength;
+        }
+      });
+      
       newDecorations.push(
-        Decoration.inline(startIndex, endIndex, {
+        Decoration.inline(docStartPos, docEndPos, {
           class: `suggestion suggestion-${res.type}`,
         })
       );
@@ -229,7 +269,6 @@ const Editor: React.FC = () => {
   
     // We can now have a single source of suggestions
     setSuggestions(newSuggestions); 
-    setGrammarSuggestions([]); // Deprecate this state
   
     // And a single function to update all decorations
     setDecorations(DecorationSet.create(editor.state.doc, newDecorations));
@@ -327,15 +366,12 @@ const Editor: React.FC = () => {
 
 
   const allSuggestions = useMemo(() => {
-    // Combine nspell suggestions with LLM suggestions
-    const combined = [...suggestions, ...grammarSuggestions];
+    // Now we have a single source of suggestions
     console.log('=== ALL SUGGESTIONS DEBUG ===');
-    console.log('Spelling suggestions:', suggestions);
-    console.log('Grammar suggestions:', grammarSuggestions);
-    console.log('Combined suggestions:', combined);
+    console.log('Suggestions:', suggestions);
     console.log('=== END ALL SUGGESTIONS DEBUG ===');
-    return combined;
-  }, [suggestions, grammarSuggestions]);
+    return suggestions;
+  }, [suggestions]);
 
   // Function to update suggestion positions after content changes
   const updateSuggestionPositions = useCallback((
@@ -382,19 +418,96 @@ const Editor: React.FC = () => {
     }).filter(Boolean) as AnalysisSuggestion[];
   }, []);
 
+  // Function to update decorations after content changes
+  const updateDecorationsAfterChange = useCallback((
+    changeStart: number,
+    changeEnd: number,
+    newContent: string
+  ) => {
+    if (!editor) return;
+    
+    const doc = editor.state.doc;
+    const changeLength = changeEnd - changeStart;
+    const newLength = newContent.length;
+    const lengthDifference = newLength - changeLength;
+    
+    const existingDecorations = decorations.find(0, doc.content.size);
+    const updatedDecorations = existingDecorations.map(dec => {
+      const decStart = dec.from;
+      const decEnd = dec.to;
+      
+      // If decoration comes after the change, shift its position
+      if (decStart > changeEnd) {
+        return Decoration.inline(
+          decStart + lengthDifference,
+          decEnd + lengthDifference,
+          dec.spec
+        );
+      }
+      // If decoration overlaps with the change, remove it
+      else if (decStart < changeEnd && decEnd > changeStart) {
+        return null;
+      }
+      // If decoration is before the change, no adjustment needed
+      else {
+        return dec;
+      }
+    }).filter(Boolean) as Decoration[];
+    
+    setDecorations(DecorationSet.create(doc, updatedDecorations));
+  }, [editor, decorations]);
+
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
     const { startIndex, endIndex, suggestion } = suggestionToAccept;
   
-    // The logic is now dead simple.
+    // Convert text positions to document positions
+    const doc = editor.state.doc;
+    let docStartPos = 0;
+    let docEndPos = 0;
+    let textPos = 0;
+    
+    // Walk through the document to find the correct positions
+    doc.descendants((node, pos) => {
+      if (node.isText) {
+        const nodeText = node.text || '';
+        const nodeLength = nodeText.length;
+        
+        // Check if our target position falls within this text node
+        if (textPos <= startIndex && startIndex < textPos + nodeLength) {
+          docStartPos = pos + (startIndex - textPos);
+        }
+        if (textPos <= endIndex && endIndex <= textPos + nodeLength) {
+          docEndPos = pos + (endIndex - textPos);
+        }
+        
+        textPos += nodeLength;
+      }
+    });
+    
+    console.log('=== ACCEPTING SUGGESTION DEBUG ===');
+    console.log('Original text positions:', startIndex, endIndex);
+    console.log('Document positions:', docStartPos, docEndPos);
+    console.log('Original text:', suggestionToAccept.originalText);
+    console.log('Suggestion:', suggestion);
+    
+    // Apply the change using document positions
     editor.chain()
       .focus()
-      .insertContentAt({ from: startIndex, to: endIndex }, suggestion)
+      .insertContentAt({ from: docStartPos, to: docEndPos }, suggestion)
       .run();
-  
-    // You still need to update remaining suggestion positions, but the root change is now reliable.
-    // The updateSuggestionPositions function itself should still work.
-    // After applying the change, you should probably re-run the analysis.
+    
+    // Remove the accepted suggestion and update positions of remaining suggestions
+    const updatedSuggestions = updateSuggestionPositions(
+      suggestions.filter(s => s.startIndex !== suggestionToAccept.startIndex),
+      suggestionToAccept.startIndex,
+      suggestionToAccept.endIndex,
+      suggestion
+    );
+    setSuggestions(updatedSuggestions);
+    
+    // Update decorations after the change
+    updateDecorationsAfterChange(docStartPos, docEndPos, suggestion);
   };
 
 
@@ -403,23 +516,20 @@ const Editor: React.FC = () => {
     console.log('=== DISMISSING SUGGESTION DEBUG ===');
     console.log('Dismissing suggestion:', suggestionToDismiss);
     
-    // Remove the dismissed suggestion and update positions of remaining suggestions
-    if (suggestionToDismiss.type === 'spelling') {
-      const updatedSuggestions = updateSuggestionPositions(
-        suggestions.filter(s => s.startIndex !== suggestionToDismiss.startIndex),
-        suggestionToDismiss.startIndex,
-        suggestionToDismiss.endIndex,
-        suggestionToDismiss.originalText // No change in content, just removing the suggestion
-      );
-      setSuggestions(updatedSuggestions);
-    } else {
-      const updatedSuggestions = updateSuggestionPositions(
-        grammarSuggestions.filter(s => s.startIndex !== suggestionToDismiss.startIndex),
-        suggestionToDismiss.startIndex,
-        suggestionToDismiss.endIndex,
-        suggestionToDismiss.originalText // No change in content, just removing the suggestion
-      );
-      setGrammarSuggestions(updatedSuggestions);
+    // Remove the dismissed suggestion from the suggestions list
+    const updatedSuggestions = suggestions.filter(s => s.startIndex !== suggestionToDismiss.startIndex);
+    setSuggestions(updatedSuggestions);
+    
+    // Remove the decoration for the dismissed suggestion
+    if (editor) {
+      const doc = editor.state.doc;
+      const existingDecorations = decorations.find(0, doc.content.size);
+      const updatedDecorations = existingDecorations.filter(dec => {
+        const className = dec.spec?.class || '';
+        // Remove decoration if it matches the dismissed suggestion
+        return !className.includes(`suggestion-${suggestionToDismiss.type}`);
+      });
+      setDecorations(DecorationSet.create(doc, updatedDecorations));
     }
     
     console.log('=== END DISMISSING SUGGESTION DEBUG ===');
