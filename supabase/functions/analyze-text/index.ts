@@ -67,21 +67,42 @@ const openai = new OpenAI({
 })
 
 const systemPrompt = `
-You are an expert writing assistant. Your task is to correct grammar and spelling errors in the provided text.
-- Respond ONLY with the corrected text.
-- Do not add any commentary or introductory phrases.
-- For every change you make, you MUST wrap the original text in <del> tags and the new, corrected text in <ins> tags.
-- If a sentence is correct, return it unchanged.
-- Preserve proper spacing around words - do not add extra spaces unless necessary for grammar.
-- When correcting contractions, ensure proper spacing (e.g., "im" -> "I'm" not "I'm ").
-- When correcting punctuation, ensure proper spacing (e.g., "its good" -> "it's good" not "it's good ").
+You are an expert writing assistant. Your task is to analyze the user's text and provide suggestions for improvement.
+- Analyze the text for spelling, grammar, style, clarity, and tone issues.
+- You MUST respond with a JSON array of suggestion objects. Do not add any other text or commentary outside of the JSON array.
+- Each suggestion object in the array must have the following structure:
+  {
+    "type": "spelling" | "grammar" | "style" | "clarity" | "tone",
+    "originalText": "the exact text to be replaced from the user's input",
+    "suggestion": "the new text to insert",
+    "explanation": "a brief, user-friendly explanation of the change"
+  }
+- If you find no issues, return an empty array: [].
+- It is critical that 'originalText' is an EXACT substring from the provided user text.
 
-Example Request: "I can has cheezburger. its so gud."
-Example Response: "I <del>can has</del><ins>can have a</ins> <del>cheezburger</del><ins>cheeseburger</ins>. <del>its so gud</del><ins>It's so good</ins>."
-
-Example Request: "this wurks really good im sick of all errors"
-Example Response: "this <del>wurks really good</del><ins>works really well</ins> <del>im</del><ins>I'm</ins> <del>sick of all errors</del><ins>sick of all the errors</ins>."
-`
+Example Request Text: "I can has cheezburger. its so gud."
+Example JSON Response:
+[
+  {
+    "type": "grammar",
+    "originalText": "can has",
+    "suggestion": "can have a",
+    "explanation": "Incorrect verb form and missing article."
+  },
+  {
+    "type": "spelling",
+    "originalText": "cheezburger",
+    "suggestion": "cheeseburger",
+    "explanation": "Potential spelling mistake."
+  },
+  {
+    "type": "grammar",
+    "originalText": "its so gud",
+    "suggestion": "It's so good",
+    "explanation": "Corrects the contraction 'it's' and the word 'good'."
+  }
+]
+`;
 
 serve(async (req) => {
   const origin = req.headers.get('origin');
@@ -139,17 +160,27 @@ serve(async (req) => {
       temperature: 0.3,
     })
 
-    const correctedText = completion.choices[0].message.content;
-    console.log('LLM response:', correctedText);
-    console.log('=== END EDGE FUNCTION DEBUG ===');
-
+    const rawResponse = completion.choices[0].message.content;
+    console.log('LLM raw response:', rawResponse);
+    
+    // It's safer to find the JSON block in case the LLM adds ```json markers
+    const jsonMatch = rawResponse.match(/\[.*\]/s);
+    const jsonString = jsonMatch ? jsonMatch[0] : '[]';
+    
+    let suggestions = [];
+    try {
+        suggestions = JSON.parse(jsonString);
+    } catch (e) {
+        console.error("Failed to parse JSON from LLM response:", e);
+        throw new Error("Invalid JSON response from analysis engine.");
+    }
+    
+    console.log('Parsed suggestions:', suggestions);
+    
     return new Response(
-      JSON.stringify({ correctedText }),
+      JSON.stringify({ suggestions }), // Return a structured object
       {
-        headers: {
-          'Access-Control-Allow-Origin': '*',
-          'Content-Type': 'application/json'
-        },
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
       }
     )
