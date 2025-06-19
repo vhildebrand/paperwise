@@ -418,6 +418,51 @@ const Editor: React.FC = () => {
     return combined;
   }, [suggestions, grammarSuggestions]);
 
+  // Function to update suggestion positions after content changes
+  const updateSuggestionPositions = useCallback((
+    suggestions: AnalysisSuggestion[], 
+    changeStart: number, 
+    changeEnd: number, 
+    newContent: string
+  ): AnalysisSuggestion[] => {
+    const changeLength = changeEnd - changeStart;
+    const newLength = newContent.length;
+    const lengthDifference = newLength - changeLength;
+    
+    console.log('=== UPDATING SUGGESTION POSITIONS ===');
+    console.log('Change start:', changeStart, 'end:', changeEnd, 'length:', changeLength);
+    console.log('New content length:', newLength, 'difference:', lengthDifference);
+    
+    return suggestions.map(suggestion => {
+      let newStartIndex = suggestion.startIndex;
+      let newEndIndex = suggestion.endIndex;
+      
+      // If this suggestion comes after the change, shift its position
+      if (suggestion.startIndex > changeEnd) {
+        newStartIndex = suggestion.startIndex + lengthDifference;
+        newEndIndex = suggestion.endIndex + lengthDifference;
+        console.log(`Suggestion after change: ${suggestion.originalText} -> ${newStartIndex}-${newEndIndex}`);
+      }
+      // If this suggestion overlaps with the change, we need to handle it carefully
+      else if (suggestion.startIndex < changeEnd && suggestion.endIndex > changeStart) {
+        // This suggestion overlaps with the accepted change - we should probably remove it
+        console.log(`Suggestion overlaps with change: ${suggestion.originalText} - will be removed`);
+        return null;
+      }
+      // If this suggestion is before the change, no adjustment needed
+      else {
+        console.log(`Suggestion before change: ${suggestion.originalText} - no adjustment needed`);
+      }
+      
+      return {
+        ...suggestion,
+        startIndex: newStartIndex,
+        endIndex: newEndIndex,
+        chunkId: `${suggestion.type}-${newStartIndex}`
+      };
+    }).filter(Boolean) as AnalysisSuggestion[];
+  }, []);
+
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => { //
     if (!editor) return;
     const { startIndex, endIndex, suggestion } = suggestionToAccept;
@@ -461,28 +506,63 @@ const Editor: React.FC = () => {
     console.log('Final suggestion to insert:', `"${finalSuggestion}"`);
     console.log('=== END ACCEPTING SUGGESTION DEBUG ===');
 
+    // Apply the change
     editor.chain()
         .focus()
         .insertContentAt({ from: startIndex, to: endIndex }, finalSuggestion)
         .run();
     
-    // Remove the accepted suggestion from the correct list
+    // Update positions of remaining suggestions
+    const updatedSpellingSuggestions = updateSuggestionPositions(
+      suggestions.filter(s => s.startIndex !== suggestionToAccept.startIndex),
+      startIndex,
+      endIndex,
+      finalSuggestion
+    );
+    
+    const updatedGrammarSuggestions = updateSuggestionPositions(
+      grammarSuggestions.filter(s => s.startIndex !== suggestionToAccept.startIndex),
+      startIndex,
+      endIndex,
+      finalSuggestion
+    );
+    
+    // Update the suggestion lists with corrected positions
     if (suggestionToAccept.type === 'spelling') {
-        setSuggestions(current => current.filter(s => s.startIndex !== suggestionToAccept.startIndex));
+      setSuggestions(updatedSpellingSuggestions);
     } else {
-        setGrammarSuggestions(current => current.filter(s => s.startIndex !== suggestionToAccept.startIndex));
+      setGrammarSuggestions(updatedGrammarSuggestions);
     }
+    
     setSelectedSuggestion(null);
   };
 
 
   // HANDLE DISMISS SUGGESTION
   const handleDismissSuggestion = (suggestionToDismiss: AnalysisSuggestion) => {
+    console.log('=== DISMISSING SUGGESTION DEBUG ===');
+    console.log('Dismissing suggestion:', suggestionToDismiss);
+    
+    // Remove the dismissed suggestion and update positions of remaining suggestions
     if (suggestionToDismiss.type === 'spelling') {
-      setSuggestions(current => current.filter(s => s.startIndex !== suggestionToDismiss.startIndex));
+      const updatedSuggestions = updateSuggestionPositions(
+        suggestions.filter(s => s.startIndex !== suggestionToDismiss.startIndex),
+        suggestionToDismiss.startIndex,
+        suggestionToDismiss.endIndex,
+        suggestionToDismiss.originalText // No change in content, just removing the suggestion
+      );
+      setSuggestions(updatedSuggestions);
     } else {
-      setGrammarSuggestions(current => current.filter(s => s.startIndex !== suggestionToDismiss.startIndex));
+      const updatedSuggestions = updateSuggestionPositions(
+        grammarSuggestions.filter(s => s.startIndex !== suggestionToDismiss.startIndex),
+        suggestionToDismiss.startIndex,
+        suggestionToDismiss.endIndex,
+        suggestionToDismiss.originalText // No change in content, just removing the suggestion
+      );
+      setGrammarSuggestions(updatedSuggestions);
     }
+    
+    console.log('=== END DISMISSING SUGGESTION DEBUG ===');
     setSelectedSuggestion(null);
   };
 
