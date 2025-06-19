@@ -20,10 +20,8 @@ import { Panel, PanelGroup } from 'react-resizable-panels';
 
 import { IconSaveStatus, IconArrowLeft } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
-//import SuggestionsSidebar from '../components/SuggestionsSidebar';
+import SuggestionsSidebar from '../components/SuggestionsSidebar';
 import './Editor.css';
-
-import { AnalysisExtension } from '../lib/AnalysisExtension';
 
 type Document = Database['public']['Tables']['documents']['Row'];
 
@@ -49,7 +47,7 @@ const Editor: React.FC = () => {
   const [editedTitle, setEditedTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
-  const [analysisStatus, setAnalysisStatus] = useState<'idle' | 'analyzing' | 'complete' | 'error'>('idle');
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
@@ -80,50 +78,6 @@ const Editor: React.FC = () => {
     }
   }, 2000), [documentId]);
 
-  /*
-  const debouncedAnalysis = useCallback(debounce(async (text: string) => {
-    // Validate text before analysis
-    const validation = validateTextForAnalysis(text);
-    if (!validation.valid) {
-      setSuggestions([]);
-      setAnalysisStatus('idle');
-      return;
-    }
-
-    setAnalysisStatus('analyzing');
-
-    try {
-      const result = await analyzeText({
-        text,
-        tone: selectedTone
-      });
-
-      if (result.error) {
-        console.error('Analysis error:', result.error);
-        setAnalysisStatus('error');
-        // Show user-friendly error message
-        if (result.error.includes('Rate limit')) {
-          // Could show a toast notification here
-          console.warn('Rate limit exceeded:', result.rateLimitRemaining);
-        } else if (result.error.includes('Authentication')) {
-          // Redirect to login if authentication failed
-          navigate('/login');
-        }
-        return;
-      }
-
-      setSuggestions(result.data || []);
-      setAnalysisStatus('complete');
-    } catch (error) {
-      console.error('Error analyzing document:', error);
-      setAnalysisStatus('error');
-    }
-  }, 2000), [selectedTone, navigate]);
-  */
-
-  const debouncedSpellCheck = useCallback(debounce(async (text: string) => {
-    console.log('Spell checking text:', text);
-  }, 2000), []);
 
   const editor = useEditor({
     extensions: [
@@ -141,14 +95,6 @@ const Editor: React.FC = () => {
       TableCell,
       History,
       MathExtension,
-      AnalysisExtension.configure({
-          suggestions: [],
-          onSuggestionClick: (suggestion, element) => {
-            setSelectedSuggestion(suggestion);
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          },
-          selectedSuggestion: null,
-      }),
     ],
     content: '',
     editable: true,
@@ -159,10 +105,7 @@ const Editor: React.FC = () => {
       const characters = text.length;
       const readingTime = Math.ceil(words / 200);
       setDocumentStats({ words, characters, readingTime });
-
       debouncedSave(html);
-      //debouncedAnalysis(text);
-      debouncedSpellCheck(text);
     },
     editorProps: {
       attributes: {
@@ -172,41 +115,10 @@ const Editor: React.FC = () => {
     },
   });
 
-  useEffect(() => {
-    if (!editor) return;
-
-    const analysisExtension = editor.extensionManager.extensions.find(ext => ext.name === 'analysis');
-    if (analysisExtension) {
-      analysisExtension.options.suggestions = suggestions;
-      analysisExtension.options.selectedSuggestion = selectedSuggestion;
-      editor.view.dispatch(editor.view.state.tr);
-    }
-  }, [suggestions, selectedSuggestion, editor]);
 
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
-    const { startIndex, endIndex, suggestion, originalText } = suggestionToAccept;
-
-    const { from, to } = editor.state.selection;
-    editor.chain().focus()
-      .insertContentAt({ from: startIndex, to: endIndex }, suggestion)
-      .run();
-
-    const lengthDifference = suggestion.length - originalText.length;
-    setSuggestions(current =>
-      current
-        .filter(s => s.startIndex !== suggestionToAccept.startIndex)
-        .map(s => {
-          if (s.startIndex > suggestionToAccept.startIndex) {
-            return {
-              ...s,
-              startIndex: s.startIndex + lengthDifference,
-              endIndex: s.endIndex + lengthDifference,
-            };
-          }
-          return s;
-        })
-    );
+    console.log('Accepting suggestion:', suggestionToAccept);
     setSelectedSuggestion(null);
   };
 
@@ -250,7 +162,7 @@ const Editor: React.FC = () => {
             const initialText = editor.getText();
             if (initialText) {
               //debouncedAnalysis(initialText);
-              debouncedSpellCheck(initialText);
+              //debouncedSpellCheck(initialText);
             }
             // Focus the editor after content is loaded
             setTimeout(() => {
@@ -276,17 +188,6 @@ const Editor: React.FC = () => {
       }, 200);
     }
   }, [editor, loading, documentData]);
-
-  // Debug editor state
-  useEffect(() => {
-    if (editor) {
-      console.log('Editor state changed:', {
-        isEditable: editor.isEditable,
-        isFocused: editor.isFocused,
-        isEmpty: editor.isEmpty
-      });
-    }
-  }, [editor]);
 
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
@@ -376,7 +277,7 @@ const Editor: React.FC = () => {
           </div>
         </Panel>
         
-        {/* <SuggestionsSidebar
+        <SuggestionsSidebar
           suggestions={suggestions}
           selectedSuggestion={selectedSuggestion}
           onAccept={handleAcceptSuggestion}
@@ -386,7 +287,7 @@ const Editor: React.FC = () => {
           isVisible={sidebarVisible}
           onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
           documentStats={documentStats}
-        /> */}
+        />
       </PanelGroup>
 
     </div>
