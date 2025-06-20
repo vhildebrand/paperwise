@@ -8,16 +8,41 @@ interface AuthState {
   loading: boolean;
   error: string | null;
   signIn: (email: string, password: string) => Promise<boolean>; // Also updated signIn for consistency
-  signUp: (email: string, password: string, name: string) => Promise<boolean>; // Changed from Promise<void>
+  signUp: (email: string, password: string, name: string) => Promise<{ success: boolean; needsVerification?: boolean }>; // Updated return type
   signOut: () => Promise<void>;
   setUser: (user: User | null) => void;
+  isEmailVerified: () => boolean; // New helper function
+  resendVerificationEmail: (email: string) => Promise<boolean>; // New function to resend verification
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   loading: true,
   error: null,
   setUser: (user) => set({ user, loading: false }),
+  
+  // Helper function to check if user's email is verified
+  isEmailVerified: () => {
+    const { user } = get();
+    return user?.email_confirmed_at !== null;
+  },
+  
+  // Function to resend verification email
+  resendVerificationEmail: async (email: string) => {
+    try {
+      set({ loading: true, error: null });
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      });
+      if (error) throw error;
+      set({ loading: false });
+      return true;
+    } catch (error) {
+      set({ error: (error as Error).message, loading: false });
+      return false;
+    }
+  },
   
   signIn: async (email: string, password: string) => {
     try {
@@ -53,19 +78,25 @@ export const useAuthStore = create<AuthState>((set) => ({
 
       if (error) throw error;
 
-      // Ensure a user object was returned before considering it a success
+      // Check if user was created but needs email verification
+      if (data.user && !data.user.email_confirmed_at) {
+        set({ user: data.user, loading: false });
+        return { success: true, needsVerification: true };
+      }
+      
+      // User is fully verified
       if (data.user) {
         set({ user: data.user, loading: false });
-        return true; // <-- Return true on success
+        return { success: true, needsVerification: false };
       }
       
       // Handle the edge case where no error is thrown but no user is returned
       set({ loading: false });
-      return false; 
+      return { success: false }; 
 
     } catch (error) {
       set({ error: (error as Error).message, loading: false });
-      return false; // <-- Return false on failure
+      return { success: false }; // <-- Return false on failure
     }
   },
   // --- END OF MODIFICATION ---

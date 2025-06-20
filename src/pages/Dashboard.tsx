@@ -3,19 +3,24 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/auth';
 import { supabase } from '../lib/supabaseClient';
 import type { Database } from '../types/supabase';
-import { IconFile, IconPlus, IconTrash, IconClock, IconEdit } from '../assets/Icons';
+import { IconFile, IconPlus, IconTrash, IconClock, IconEdit, IconEnvelope, IconCheckCircle, IconArrowPath } from '../assets/Icons';
 
 // Define the type for a document based on your Supabase schema
 type Document = Database['public']['Tables']['documents']['Row'];
 
 const Dashboard: React.FC = () => {
-  const { user, signOut } = useAuthStore();
+  const { user, signOut, isEmailVerified, resendVerificationEmail } = useAuthStore();
   const navigate = useNavigate();
 
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [showNewDocModal, setShowNewDocModal] = useState(false);
   const [newDocTitle, setNewDocTitle] = useState('');
+  const [resendLoading, setResendLoading] = useState(false);
+  const [resendSuccess, setResendSuccess] = useState(false);
+
+  // Check if user's email is verified
+  const emailVerified = isEmailVerified();
 
   useEffect(() => {
     const fetchDocuments = async () => {
@@ -45,8 +50,31 @@ const Dashboard: React.FC = () => {
     fetchDocuments();
   }, [user]);
 
+  const handleResendVerification = async () => {
+    if (!user?.email) return;
+    
+    setResendLoading(true);
+    setResendSuccess(false);
+    
+    const success = await resendVerificationEmail(user.email);
+    
+    if (success) {
+      setResendSuccess(true);
+      setTimeout(() => setResendSuccess(false), 3000); // Hide success message after 3 seconds
+    }
+    
+    setResendLoading(false);
+  };
+
   const createNewDocument = async () => {
     if (!user || !newDocTitle.trim()) return;
+    
+    // Check if user is verified before allowing document creation
+    if (!emailVerified) {
+      alert('Please verify your email address before creating documents.');
+      return;
+    }
+    
     try {
       const { data, error } = await supabase
         .from('documents')
@@ -139,6 +167,48 @@ const Dashboard: React.FC = () => {
       
       <main className="relative">
         <div className="max-w-7xl mx-auto py-8 sm:px-6 lg:px-8">
+          {/* Email Verification Banner */}
+          {!emailVerified && (
+            <div className="mb-6 bg-yellow-50 border border-yellow-200 rounded-xl p-4">
+              <div className="flex items-start space-x-3">
+                <div className="flex-shrink-0">
+                  <IconEnvelope className="h-5 w-5 text-yellow-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-medium text-yellow-800">
+                    Email verification required
+                  </h3>
+                  <p className="mt-1 text-sm text-yellow-700 mb-3">
+                    Please check your email and click the verification link to start creating documents. 
+                    If you haven't received the email, check your spam folder.
+                  </p>
+                  <button
+                    onClick={handleResendVerification}
+                    disabled={resendLoading}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-yellow-800 bg-yellow-100 hover:bg-yellow-200 rounded-md transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {resendLoading ? (
+                      <>
+                        <IconArrowPath className="w-3 h-3 animate-spin" />
+                        Sending...
+                      </>
+                    ) : (
+                      <>
+                        <IconArrowPath className="w-3 h-3" />
+                        Resend verification email
+                      </>
+                    )}
+                  </button>
+                  {resendSuccess && (
+                    <p className="mt-2 text-xs text-green-600 font-medium">
+                      Verification email sent successfully!
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="px-4 sm:px-0 flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 gap-4">
             <div>
               <h2 className="text-3xl font-bold text-gray-900 tracking-tight">Your Documents</h2>
@@ -146,7 +216,12 @@ const Dashboard: React.FC = () => {
             </div>
             <button
               onClick={() => setShowNewDocModal(true)}
-              className="inline-flex items-center gap-2 px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-all duration-200 transform hover:scale-105"
+              disabled={!emailVerified}
+              className={`inline-flex items-center gap-2 px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg transition-all duration-200 transform hover:scale-105 ${
+                emailVerified 
+                  ? 'text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500'
+                  : 'text-gray-400 bg-gray-200 cursor-not-allowed'
+              }`}
             >
               <IconPlus className="w-5 h-5" />
               New Document
@@ -221,21 +296,39 @@ const Dashboard: React.FC = () => {
               </div>
             ) : (
               <div 
-                onClick={() => setShowNewDocModal(true)} 
-                className="text-center p-16 border-2 border-dashed border-gray-300 rounded-2xl hover:border-indigo-400 hover:bg-indigo-50/50 cursor-pointer transition-all duration-300 group"
+                onClick={() => emailVerified && setShowNewDocModal(true)} 
+                className={`text-center p-16 border-2 border-dashed rounded-2xl transition-all duration-300 group ${
+                  emailVerified 
+                    ? 'border-gray-300 hover:border-indigo-400 hover:bg-indigo-50/50 cursor-pointer'
+                    : 'border-gray-200 bg-gray-50 cursor-not-allowed'
+                }`}
               >
-                <div className="mx-auto w-16 h-16 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300">
-                  <IconFile className="h-8 w-8 text-indigo-600"/>
+                <div className={`mx-auto w-16 h-16 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform duration-300 ${
+                  emailVerified 
+                    ? 'bg-gradient-to-br from-indigo-100 to-purple-100'
+                    : 'bg-gray-100'
+                }`}>
+                  {emailVerified ? (
+                    <IconFile className="h-8 w-8 text-indigo-600"/>
+                  ) : (
+                    <IconEnvelope className="h-8 w-8 text-gray-400"/>
+                  )}
                 </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-2">No documents yet</h3>
+                <h3 className="text-xl font-semibold text-gray-900 mb-2">
+                  {emailVerified ? 'No documents yet' : 'Email verification required'}
+                </h3>
                 <p className="text-gray-600 mb-6 max-w-md mx-auto">
-                  Start your academic journey by creating your first document. 
-                  Write papers, research notes, or any academic content with AI assistance.
+                  {emailVerified 
+                    ? 'Start your academic journey by creating your first document. Write papers, research notes, or any academic content with AI assistance.'
+                    : 'Please verify your email address to start creating documents. Check your inbox for the verification link.'
+                  }
                 </p>
-                <button className="inline-flex items-center gap-2 px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transition-all duration-200">
-                  <IconPlus className="w-5 h-5" />
-                  Create Your First Document
-                </button>
+                {emailVerified && (
+                  <button className="inline-flex items-center gap-2 px-6 py-3 border border-transparent text-base font-medium rounded-xl shadow-lg text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 transition-all duration-200">
+                    <IconPlus className="w-5 h-5" />
+                    Create Your First Document
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -271,7 +364,7 @@ const Dashboard: React.FC = () => {
               </button>
               <button
                 onClick={createNewDocument}
-                disabled={!newDocTitle.trim()}
+                disabled={!newDocTitle.trim() || !emailVerified}
                 className="px-6 py-2.5 text-sm font-medium text-white bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
               >
                 Create Document
