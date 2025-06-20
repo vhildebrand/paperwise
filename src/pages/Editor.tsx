@@ -26,6 +26,8 @@ import './Editor.css';
 import { Decoration, DecorationSet } from 'prosemirror-view';
 import { Node } from 'prosemirror-model';
 
+import { CustomParagraph, ParagraphIdGenerator } from '../lib/tiptap-extensions';
+
 type Document = Database['public']['Tables']['documents']['Row'];
 
 function debounce<T extends (...args: any[]) => any>(
@@ -37,6 +39,22 @@ function debounce<T extends (...args: any[]) => any>(
     clearTimeout(timeout);
     timeout = setTimeout(() => func(...args), wait);
   };
+}
+
+// Simple hash function for strings
+const simpleHash = (str: string) => {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return String(hash);
+};
+
+interface ParagraphState {
+  hash: string;
+  status: 'clean' | 'dirty' | 'analyzing';
 }
 
 const Editor: React.FC = () => {
@@ -57,9 +75,11 @@ const Editor: React.FC = () => {
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0 });
   const [decorations, setDecorations] = useState(DecorationSet.empty);
+  const [paragraphStates, setParagraphStates] = useState<Map<string, ParagraphState>>(new Map());
 
   const editorRef = useRef<HTMLDivElement>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+  const isAcceptingSuggestion = useRef(false);
 
   // DEBOUNCED AUTOSAVE FUNCTION
   const debouncedSave = useCallback(debounce(async (content: string) => {
@@ -88,8 +108,10 @@ const Editor: React.FC = () => {
     extensions: [
       StarterKit.configure({
         history: false, // Using the History extension instead
-        heading: { levels: [1, 2, 3] }
+        heading: { levels: [1, 2, 3] },
+        paragraph: false, // Disable the default paragraph extension
       }),
+      CustomParagraph, // Use our custom paragraph extension
       Underline,
       Strike,
       Table.configure({
@@ -100,6 +122,7 @@ const Editor: React.FC = () => {
       TableCell,
       History,
       MathExtension,
+      ParagraphIdGenerator, // Add the extension that provides the plugin
     ],
     content: '',
     editable: true,
@@ -112,8 +135,38 @@ const Editor: React.FC = () => {
       const readingTime = Math.ceil(words / 200);
       setDocumentStats({ words, characters, readingTime });
       debouncedSave(html);
-      debouncedGrammarCheck(text);
-      //debouncedSpellCheck(text, doc);
+
+      if (isAcceptingSuggestion.current) {
+        return;
+      }
+      
+      // New logic for dirty checking
+      const newStates = new Map(paragraphStates);
+      let hasDirtyParagraphs = false;
+
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'paragraph') {
+          const id = node.attrs['data-paragraph-id'];
+          if (!id) return;
+
+          const text = node.textContent;
+          const hash = simpleHash(text);
+          const currentState = newStates.get(id);
+
+          if (!currentState || currentState.hash !== hash) {
+            newStates.set(id, { hash, status: 'dirty' });
+            hasDirtyParagraphs = true;
+          }
+        }
+      });
+      
+      if(hasDirtyParagraphs) {
+        setParagraphStates(newStates);
+        runAnalysisOnDirtyParagraphs();
+      }
+
+      // OLD CALL:
+      // debouncedGrammarCheck(text);
     },
     editorProps: {
       attributes: {
@@ -121,6 +174,9 @@ const Editor: React.FC = () => {
         spellcheck: 'false',
       },
       decorations: () => decorations,
+      handleDOMEvents: {
+        // This is a placeholder for future use if needed
+      },
     },
   });
 
@@ -188,93 +244,6 @@ const Editor: React.FC = () => {
 
   }, [editor]);
 
-  // --- NEW: Function to process LLM response ---
-  const processAIAnalysis = useCallback((text: string, results: any[]) => {
-    console.log('Processing AI Analysis Results:', results);
-    if (!editor || !results) return;
-  
-    const newSuggestions: AnalysisSuggestion[] = [];
-    const newDecorations: Decoration[] = [];
-    const doc = editor.state.doc;
-    
-    for (const res of results) {
-      // Use a more robust method to find text positions
-      let startIndex = -1;
-      let endIndex = -1;
-      let textPos = 0;
-      
-      // Walk through the document to find the exact text match
-      doc.descendants((node, pos) => {
-        if (node.isText) {
-          const nodeText = node.text || '';
-          const nodeLength = nodeText.length;
-          
-          // Check if this text node contains our target text
-          const textInNode = text.substring(textPos, textPos + nodeLength);
-          const matchIndex = textInNode.indexOf(res.originalText);
-          
-          if (matchIndex !== -1) {
-            startIndex = textPos + matchIndex;
-            endIndex = startIndex + res.originalText.length;
-          }
-          
-          textPos += nodeLength;
-        }
-      });
-      
-      if (startIndex === -1) {
-        console.warn(`Could not find text "${res.originalText}" in document.`);
-        continue;
-      }
-  
-      const suggestion: AnalysisSuggestion = {
-        type: res.type,
-        originalText: res.originalText,
-        suggestion: res.suggestion,
-        explanation: res.explanation,
-        startIndex,
-        endIndex,
-        chunkId: `${res.type}-${startIndex}`
-      };
-      newSuggestions.push(suggestion);
-  
-      // Create decoration based on the suggestion type
-      // Convert text position to document position for decoration
-      let docStartPos = 0;
-      let docEndPos = 0;
-      let docTextPos = 0;
-      
-      doc.descendants((node, pos) => {
-        if (node.isText) {
-          const nodeText = node.text || '';
-          const nodeLength = nodeText.length;
-          
-          if (docTextPos <= startIndex && startIndex < docTextPos + nodeLength) {
-            docStartPos = pos + (startIndex - docTextPos);
-          }
-          if (docTextPos <= endIndex && endIndex <= docTextPos + nodeLength) {
-            docEndPos = pos + (endIndex - docTextPos);
-          }
-          
-          docTextPos += nodeLength;
-        }
-      });
-      
-      newDecorations.push(
-        Decoration.inline(docStartPos, docEndPos, {
-          class: `suggestion suggestion-${res.type}`,
-        })
-      );
-    }
-  
-    // We can now have a single source of suggestions
-    setSuggestions(newSuggestions); 
-  
-    // And a single function to update all decorations
-    setDecorations(DecorationSet.create(editor.state.doc, newDecorations));
-  
-  }, [editor]);
-
   // Unified decoration management
   const updateDecorations = useCallback((newDecorations: Decoration[], type: 'spelling' | 'grammar') => {
     if (!editor) return;
@@ -297,35 +266,170 @@ const Editor: React.FC = () => {
     setDecorations(DecorationSet.create(doc, allDecorations));
   }, [editor, decorations]);
 
-   // --- NEW: Debounced function to call our Edge Function ---
-   const debouncedGrammarCheck = useCallback(debounce(async (text: string) => {
-    console.log('=== GRAMMAR CHECK DEBUG ===');
-    console.log('Input text:', text);
-    console.log('Selected tone:', selectedTone);
+  const processChunkedAIAnalysis = useCallback((results: Record<string, any[]>, paragraphs: {id: string, pos: number}[]) => {
+    if (!editor) return;
+
+    const newSuggestions: AnalysisSuggestion[] = [];
+    const newDecorations: Decoration[] = [];
+    const doc = editor.state.doc;
+
+    // Create a map of paragraph start positions
+    const paragraphPositions = new Map(paragraphs.map(p => [p.id, p.pos]));
+
+    for (const chunkId in results) {
+        const chunkSuggestions = results[chunkId];
+        const chunkStartPos = paragraphPositions.get(chunkId);
+
+        if (chunkStartPos === undefined) {
+            console.warn(`Could not find start position for chunk ${chunkId}`);
+            continue;
+        }
+
+        for (const res of chunkSuggestions) {
+            const textNodeStart = chunkStartPos + 1; // +1 to be inside the paragraph node
+            
+            let found = false;
+            // Search within the paragraph for the original text
+            const paraNode = doc.nodeAt(chunkStartPos);
+            if (!paraNode) continue;
+            
+            const paraEndPos = chunkStartPos + paraNode.nodeSize;
+            doc.nodesBetween(textNodeStart, paraEndPos, (node, pos) => {
+                if(found) return false;
+                if (node.isText) {
+                    const indexInNode = (node.textContent || '').indexOf(res.originalText);
+                    if (indexInNode !== -1) {
+                        const startIndex = pos + indexInNode;
+                        const endIndex = startIndex + res.originalText.length;
+                        
+                        const suggestion: AnalysisSuggestion = {
+                            type: res.type,
+                            originalText: res.originalText,
+                            suggestion: res.suggestion,
+                            explanation: res.explanation,
+                            startIndex,
+                            endIndex,
+                            chunkId: `${res.type}-${startIndex}`
+                        };
+                        newSuggestions.push(suggestion);
+
+                        newDecorations.push(
+                            Decoration.inline(startIndex, endIndex, {
+                                class: `suggestion suggestion-${res.type}`,
+                            })
+                        );
+                        found = true;
+                        return false; // stop searching
+                    }
+                }
+                return true;
+            });
+             if (!found) {
+                console.warn(`Could not find text "${res.originalText}" in document for chunk ${chunkId}.`);
+            }
+        }
+    }
     
-    if (text.trim().length < 20) { // Don't analyze very short texts
-        console.log('Text too short, skipping analysis');
-        setAnalysisStatus('idle');
-        return;
-    }
+    const reanalyzedParaIds = new Set(Object.keys(results));
+    
+    const existingSuggestions = suggestions.filter(s => {
+        let paraId = '';
+        doc.nodesBetween(s.startIndex, s.endIndex, (node, pos) => {
+            if (node.type.name === 'paragraph') {
+                paraId = node.attrs['data-paragraph-id'];
+                return false;
+            }
+            return true;
+        })
+        return !reanalyzedParaIds.has(paraId);
+    });
 
-    setAnalysisStatus('analyzing'); //
+    const allSuggestions = [...existingSuggestions, ...newSuggestions];
+    setSuggestions(allSuggestions);
+
+    const existingDecorations = decorations.find(0, doc.content.size);
+    const filteredDecorations = existingDecorations.filter(dec => {
+        let paraId = '';
+        doc.nodesBetween(dec.from, dec.to, (node, pos) => {
+            if (node.type.name === 'paragraph') {
+                paraId = node.attrs['data-paragraph-id'];
+                return false;
+            }
+            return true;
+        })
+        return !reanalyzedParaIds.has(paraId);
+    });
+
+    setDecorations(DecorationSet.create(doc, [...filteredDecorations, ...newDecorations]));
+
+  }, [editor, suggestions, decorations]);
+
+  // --- NEW: Debounced function for dirty paragraph analysis ---
+  const runAnalysisOnDirtyParagraphs = useCallback(debounce(async () => {
+    if (!editor) return;
+
+    const dirtyParagraphs: { id: string; text: string; pos: number }[] = [];
+    editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === 'paragraph') {
+            const id = node.attrs['data-paragraph-id'];
+            const state = paragraphStates.get(id);
+            if (id && state && state.status === 'dirty') {
+                dirtyParagraphs.push({ id, text: node.textContent, pos });
+            }
+        }
+    });
+
+    if (dirtyParagraphs.length === 0) {
+      return;
+    }
+    
+    setAnalysisStatus('analyzing');
+    const newStates = new Map(paragraphStates);
+    dirtyParagraphs.forEach(({ id }) => {
+      newStates.set(id, { ...newStates.get(id)!, status: 'analyzing' });
+    });
+    setParagraphStates(newStates);
+
+    console.log('Analyzing dirty paragraphs:', dirtyParagraphs);
+    
     try {
-      const { data, error } = await supabase.functions.invoke('analyze-text', {
-        body: { text, tone: selectedTone },
-      });
-  
-      if (error) throw error;
-  
-      // Pass the original text and the new suggestions array to the processor
-      processAIAnalysis(text, data.suggestions); 
-      setAnalysisStatus('complete');
-    } catch (error) {
-      // ... (error handling)
-    }
-  }, 1000), [selectedTone, processAIAnalysis]);
+        const requestBody = {
+            tone: selectedTone,
+            chunks: dirtyParagraphs.reduce((acc, { id, text }) => {
+                acc[id] = text;
+                return acc;
+            }, {} as Record<string, string>)
+        };
+        
+        const { data, error } = await supabase.functions.invoke('analyze-text', {
+            body: requestBody,
+        });
 
-  
+        if (error) throw error;
+        
+        if (data.results) {
+            processChunkedAIAnalysis(data.results, dirtyParagraphs);
+        }
+
+        setAnalysisStatus('complete');
+        const finalStates = new Map(paragraphStates);
+        dirtyParagraphs.forEach(({ id }) => {
+            finalStates.set(id, { ...finalStates.get(id)!, status: 'clean' });
+        });
+        setParagraphStates(finalStates);
+
+    } catch (error) {
+        console.error('Error analyzing dirty paragraphs:', error);
+        setAnalysisStatus('error');
+        // Revert status for failed paragraphs
+        const revertedStates = new Map(paragraphStates);
+        dirtyParagraphs.forEach(({ id }) => {
+            revertedStates.set(id, { ...revertedStates.get(id)!, status: 'dirty' });
+        });
+        setParagraphStates(revertedStates);
+    }
+
+  }, 2000), [paragraphStates, editor, selectedTone, processChunkedAIAnalysis]);
 
   // DEBOUNCED SPELL CHECK FUNCTION
   const debouncedSpellCheck = useCallback(debounce((text: string, doc: Node) => {
@@ -373,141 +477,57 @@ const Editor: React.FC = () => {
     return suggestions;
   }, [suggestions]);
 
-  // Function to update suggestion positions after content changes
-  const updateSuggestionPositions = useCallback((
-    suggestions: AnalysisSuggestion[], 
-    changeStart: number, 
-    changeEnd: number, 
-    newContent: string
-  ): AnalysisSuggestion[] => {
-    const changeLength = changeEnd - changeStart;
-    const newLength = newContent.length;
-    const lengthDifference = newLength - changeLength;
-    
-    console.log('=== UPDATING SUGGESTION POSITIONS ===');
-    console.log('Change start:', changeStart, 'end:', changeEnd, 'length:', changeLength);
-    console.log('New content length:', newLength, 'difference:', lengthDifference);
-    
-    return suggestions.map(suggestion => {
-      let newStartIndex = suggestion.startIndex;
-      let newEndIndex = suggestion.endIndex;
-      
-      // If this suggestion comes after the change, shift its position
-      if (suggestion.startIndex > changeEnd) {
-        newStartIndex = suggestion.startIndex + lengthDifference;
-        newEndIndex = suggestion.endIndex + lengthDifference;
-        console.log(`Suggestion after change: ${suggestion.originalText} -> ${newStartIndex}-${newEndIndex}`);
-      }
-      // If this suggestion overlaps with the change, we need to handle it carefully
-      else if (suggestion.startIndex < changeEnd && suggestion.endIndex > changeStart) {
-        // This suggestion overlaps with the accepted change - we should probably remove it
-        console.log(`Suggestion overlaps with change: ${suggestion.originalText} - will be removed`);
-        return null;
-      }
-      // If this suggestion is before the change, no adjustment needed
-      else {
-        console.log(`Suggestion before change: ${suggestion.originalText} - no adjustment needed`);
-      }
-      
-      return {
-        ...suggestion,
-        startIndex: newStartIndex,
-        endIndex: newEndIndex,
-        chunkId: `${suggestion.type}-${newStartIndex}`
-      };
-    }).filter(Boolean) as AnalysisSuggestion[];
-  }, []);
-
-  // Function to update decorations after content changes
-  const updateDecorationsAfterChange = useCallback((
-    changeStart: number,
-    changeEnd: number,
-    newContent: string
-  ) => {
-    if (!editor) return;
-    
-    const doc = editor.state.doc;
-    const changeLength = changeEnd - changeStart;
-    const newLength = newContent.length;
-    const lengthDifference = newLength - changeLength;
-    
-    const existingDecorations = decorations.find(0, doc.content.size);
-    const updatedDecorations = existingDecorations.map(dec => {
-      const decStart = dec.from;
-      const decEnd = dec.to;
-      
-      // If decoration comes after the change, shift its position
-      if (decStart > changeEnd) {
-        return Decoration.inline(
-          decStart + lengthDifference,
-          decEnd + lengthDifference,
-          dec.spec
-        );
-      }
-      // If decoration overlaps with the change, remove it
-      else if (decStart < changeEnd && decEnd > changeStart) {
-        return null;
-      }
-      // If decoration is before the change, no adjustment needed
-      else {
-        return dec;
-      }
-    }).filter(Boolean) as Decoration[];
-    
-    setDecorations(DecorationSet.create(doc, updatedDecorations));
-  }, [editor, decorations]);
-
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
+
     const { startIndex, endIndex, suggestion } = suggestionToAccept;
-  
-    // Convert text positions to document positions
-    const doc = editor.state.doc;
-    let docStartPos = 0;
-    let docEndPos = 0;
-    let textPos = 0;
+
+    isAcceptingSuggestion.current = true;
+
+    const { tr } = editor.state;
+    tr.replaceWith(startIndex, endIndex, editor.schema.text(suggestion));
     
-    // Walk through the document to find the correct positions
-    doc.descendants((node, pos) => {
-      if (node.isText) {
-        const nodeText = node.text || '';
-        const nodeLength = nodeText.length;
+    // Get the mapping from the transaction
+    const mapping = tr.mapping;
+    editor.view.dispatch(tr);
+
+    // Update the positions of all other suggestions
+    const updatedSuggestions = suggestions
+      .filter(s => s.chunkId !== suggestionToAccept.chunkId) // Remove the accepted one
+      .map(s => {
+        // mapPoint returns the new position of a point, and a boolean indicating if it was deleted
+        const from = mapping.map(s.startIndex);
+        const to = mapping.map(s.endIndex);
         
-        // Check if our target position falls within this text node
-        if (textPos <= startIndex && startIndex < textPos + nodeLength) {
-          docStartPos = pos + (startIndex - textPos);
+        // If the suggestion was deleted by this transaction, filter it out
+        if (from === to) {
+            return null;
         }
-        if (textPos <= endIndex && endIndex <= textPos + nodeLength) {
-          docEndPos = pos + (endIndex - textPos);
-        }
-        
-        textPos += nodeLength;
-      }
-    });
+
+        return {
+          ...s,
+          startIndex: from,
+          endIndex: to,
+        };
+      })
+      .filter(Boolean) as AnalysisSuggestion[];
     
-    console.log('=== ACCEPTING SUGGESTION DEBUG ===');
-    console.log('Original text positions:', startIndex, endIndex);
-    console.log('Document positions:', docStartPos, docEndPos);
-    console.log('Original text:', suggestionToAccept.originalText);
-    console.log('Suggestion:', suggestion);
-    
-    // Apply the change using document positions
-    editor.chain()
-      .focus()
-      .insertContentAt({ from: docStartPos, to: docEndPos }, suggestion)
-      .run();
-    
-    // Remove the accepted suggestion and update positions of remaining suggestions
-    const updatedSuggestions = updateSuggestionPositions(
-      suggestions.filter(s => s.startIndex !== suggestionToAccept.startIndex),
-      suggestionToAccept.startIndex,
-      suggestionToAccept.endIndex,
-      suggestion
-    );
     setSuggestions(updatedSuggestions);
+
+    // Re-create decorations from the updated suggestions
+    const newDecorations = updatedSuggestions.map(s => 
+      Decoration.inline(s.startIndex, s.endIndex, {
+        class: `suggestion suggestion-${s.type}`,
+      })
+    );
+    setDecorations(DecorationSet.create(editor.state.doc, newDecorations));
     
-    // Update decorations after the change
-    updateDecorationsAfterChange(docStartPos, docEndPos, suggestion);
+    setSelectedSuggestion(null);
+
+    // Reset the flag in the next event loop cycle
+    requestAnimationFrame(() => {
+      isAcceptingSuggestion.current = false;
+    });
   };
 
 
@@ -517,19 +537,19 @@ const Editor: React.FC = () => {
     console.log('Dismissing suggestion:', suggestionToDismiss);
     
     // Remove the dismissed suggestion from the suggestions list
-    const updatedSuggestions = suggestions.filter(s => s.startIndex !== suggestionToDismiss.startIndex);
+    const updatedSuggestions = suggestions.filter(s => s.chunkId !== suggestionToDismiss.chunkId);
     setSuggestions(updatedSuggestions);
     
     // Remove the decoration for the dismissed suggestion
     if (editor) {
       const doc = editor.state.doc;
-      const existingDecorations = decorations.find(0, doc.content.size);
-      const updatedDecorations = existingDecorations.filter(dec => {
-        const className = dec.spec?.class || '';
-        // Remove decoration if it matches the dismissed suggestion
-        return !className.includes(`suggestion-${suggestionToDismiss.type}`);
-      });
-      setDecorations(DecorationSet.create(doc, updatedDecorations));
+      // Re-create decorations from the updated list
+      const newDecorations = updatedSuggestions.map(s => 
+        Decoration.inline(s.startIndex, s.endIndex, {
+          class: `suggestion suggestion-${s.type}`,
+        })
+      );
+      setDecorations(DecorationSet.create(doc, newDecorations));
     }
     
     console.log('=== END DISMISSING SUGGESTION DEBUG ===');

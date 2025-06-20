@@ -72,7 +72,7 @@ You are an expert writing assistant. Your task is to analyze the user's text and
 - You MUST respond with a JSON array of suggestion objects. Do not add any other text or commentary outside of the JSON array.
 - Each suggestion object in the array must have the following structure:
   {
-    "type": "spelling" | "grammar" | "style" | "clarity" | "tone",
+    "type": "spelling" | "grammar",
     "originalText": "the exact text to be replaced from the user's input",
     "suggestion": "the new text to insert",
     "explanation": "a brief, user-friendly explanation of the change"
@@ -102,6 +102,58 @@ Example JSON Response:
     "explanation": "Corrects the contraction 'it's' and the word 'good'."
   }
 ]
+`;
+
+const newSystemPrompt = `
+You are an expert writing assistant. Your task is to analyze multiple chunks of text from a user and provide suggestions for improvement.
+- The user will provide a JSON object with text chunks, each identified by a unique key.
+- You MUST respond with a single JSON object. Do not add any other text or commentary outside of this JSON object.
+- The response object should have keys corresponding to the original chunk keys.
+- The value for each key should be a JSON array of suggestion objects for that chunk.
+- Each suggestion object in the array must have the following structure:
+  {
+    "type": "spelling" | "grammar" | "style" | "clarity" | "tone",
+    "originalText": "the exact text to be replaced from the user's input chunk",
+    "suggestion": "the new text to insert",
+    "explanation": "a brief, user-friendly explanation of the change"
+  }
+- If a chunk has no issues, its corresponding value should be an empty array: [].
+- It is critical that 'originalText' is an EXACT substring from the provided user text chunk.
+
+Example Request:
+{
+  "tone": "formal",
+  "chunks": {
+    "chunk1": "I can has cheezburger.",
+    "chunk2": "its so gud."
+  }
+}
+
+Example JSON Response:
+{
+  "chunk1": [
+    {
+      "type": "grammar",
+      "originalText": "can has",
+      "suggestion": "can have a",
+      "explanation": "Incorrect verb form and missing article."
+    },
+    {
+      "type": "spelling",
+      "originalText": "cheezburger",
+      "suggestion": "cheeseburger",
+      "explanation": "Potential spelling mistake."
+    }
+  ],
+  "chunk2": [
+    {
+      "type": "grammar",
+      "originalText": "its so gud",
+      "suggestion": "It's so good",
+      "explanation": "Corrects the contraction 'it's' and the word 'good'."
+    }
+  ]
+}
 `;
 
 serve(async (req) => {
@@ -141,44 +193,43 @@ serve(async (req) => {
 
 
   try {
-    const { text, tone } = await req.json()
+    const { tone, chunks } = await req.json()
 
-    if (!text) {
-      throw new Error("No text provided.");
+    if (!chunks || Object.keys(chunks).length === 0) {
+      throw new Error("No text chunks provided.");
     }
 
     console.log('=== EDGE FUNCTION DEBUG ===');
-    console.log('Input text:', text);
+    console.log('Input chunks:', chunks);
     console.log('Tone:', tone);
 
+    const userContent = `Tone preference: ${tone}\n\nText chunks to correct:\n${JSON.stringify(chunks, null, 2)}`;
+
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini', // Or another powerful model
+      model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Tone preference: ${tone}\n\nText to correct:\n${text}` },
+        { role: 'system', content: newSystemPrompt },
+        { role: 'user', content: userContent },
       ],
       temperature: 0.3,
+      response_format: { type: "json_object" },
     })
 
     const rawResponse = completion.choices[0].message.content;
     console.log('LLM raw response:', rawResponse);
     
-    // It's safer to find the JSON block in case the LLM adds ```json markers
-    const jsonMatch = rawResponse.match(/\[.*\]/s);
-    const jsonString = jsonMatch ? jsonMatch[0] : '[]';
-    
-    let suggestions = [];
+    let results = {};
     try {
-        suggestions = JSON.parse(jsonString);
+        results = JSON.parse(rawResponse);
     } catch (e) {
         console.error("Failed to parse JSON from LLM response:", e);
         throw new Error("Invalid JSON response from analysis engine.");
     }
     
-    console.log('Parsed suggestions:', suggestions);
+    console.log('Parsed results:', results);
     
     return new Response(
-      JSON.stringify({ suggestions }), // Return a structured object
+      JSON.stringify({ results }), // Return a structured object
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
