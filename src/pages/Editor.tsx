@@ -23,7 +23,7 @@ import EditorToolbar from '../components/EditorToolbar';
 import SuggestionsSidebar from '../components/SuggestionsSidebar';
 import './Editor.css';
 
-import { Decoration, DecorationSet } from 'prosemirror-view';
+import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
 import { Node } from 'prosemirror-model';
 
 import { CustomParagraph, ParagraphIdGenerator } from '../lib/tiptap-extensions';
@@ -33,12 +33,17 @@ type Document = Database['public']['Tables']['documents']['Row'];
 function debounce<T extends (...args: any[]) => any>(
   func: T,
   wait: number
-): (...args: Parameters<T>) => void {
+): ((...args: Parameters<T>) => void) & { callback: T } {
   let timeout: NodeJS.Timeout;
-  return (...args: Parameters<T>) => {
+  
+  const debounced = (...args: Parameters<T>) => {
     clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
+    timeout = setTimeout(() => debounced.callback(...args), wait);
   };
+  
+  debounced.callback = func;
+
+  return debounced;
 }
 
 // Simple hash function for strings
@@ -176,7 +181,23 @@ const Editor: React.FC = () => {
       },
       decorations: () => decorations,
       handleDOMEvents: {
-        // This is a placeholder for future use if needed
+        click: (view: EditorView, event: MouseEvent) => {
+          const coords = { left: event.clientX, top: event.clientY };
+          const posResult = view.posAtCoords(coords);
+          if (!posResult) return false;
+
+          const { pos } = posResult;
+          const clickedDecorations = decorations.find(pos, pos);
+
+          if (clickedDecorations.length > 0) {
+              const suggestion = suggestions.find(s => s.startIndex <= pos && s.endIndex >= pos);
+              if (suggestion) {
+                  setSelectedSuggestion(suggestion);
+                  return true; // handled
+              }
+          }
+          return false; // not handled
+        }
       },
     },
   });
@@ -367,15 +388,26 @@ const Editor: React.FC = () => {
 
   }, [editor, suggestions, decorations]);
 
-  // --- NEW: Debounced function for dirty paragraph analysis ---
-  const runAnalysisOnDirtyParagraphs = useCallback(debounce(async () => {
+  // --- REFACTORED: Stable debounced analysis trigger ---
+  const paragraphStatesRef = useRef(paragraphStates);
+  paragraphStatesRef.current = paragraphStates;
+  
+  const selectedToneRef = useRef(selectedTone);
+  selectedToneRef.current = selectedTone;
+
+  const processChunkedAIAnalysisRef = useRef(processChunkedAIAnalysis);
+  processChunkedAIAnalysisRef.current = processChunkedAIAnalysis;
+  
+  const analysisFn = useCallback(async () => {
     if (!editor) return;
 
+    const currentParagraphStates = paragraphStatesRef.current;
+    
     const dirtyParagraphs: { id: string; text: string; pos: number }[] = [];
     editor.state.doc.descendants((node, pos) => {
         if (node.type.name === 'paragraph') {
             const id = node.attrs['data-paragraph-id'];
-            const state = paragraphStates.get(id);
+            const state = currentParagraphStates.get(id);
             if (id && state && state.status === 'dirty') {
                 dirtyParagraphs.push({ id, text: node.textContent, pos });
             }
@@ -383,56 +415,73 @@ const Editor: React.FC = () => {
     });
 
     if (dirtyParagraphs.length === 0) {
-      return;
+        return;
     }
-    
+
     setAnalysisStatus('analyzing');
-    const newStates = new Map(paragraphStates);
+    const newStates = new Map(currentParagraphStates);
     dirtyParagraphs.forEach(({ id }) => {
-      newStates.set(id, { ...newStates.get(id)!, status: 'analyzing' });
+        newStates.set(id, { ...newStates.get(id)!, status: 'analyzing' });
     });
     setParagraphStates(newStates);
 
     console.log(`[${new Date().toLocaleTimeString()}] Analysis triggered for ${dirtyParagraphs.length} dirty paragraphs:`, dirtyParagraphs.map(p => ({id: p.id, text: p.text})));
-    
+
     try {
         const requestBody = {
-            tone: selectedTone,
+            tone: selectedToneRef.current,
             chunks: dirtyParagraphs.reduce((acc, { id, text }) => {
                 acc[id] = text;
                 return acc;
             }, {} as Record<string, string>)
         };
-        
+
         const { data, error } = await supabase.functions.invoke('analyze-text', {
             body: requestBody,
         });
 
         if (error) throw error;
-        
+
         if (data.results) {
-            processChunkedAIAnalysis(data.results, dirtyParagraphs);
+            processChunkedAIAnalysisRef.current(data.results, dirtyParagraphs);
         }
 
         setAnalysisStatus('complete');
-        const finalStates = new Map(paragraphStates);
-        dirtyParagraphs.forEach(({ id }) => {
-            finalStates.set(id, { ...finalStates.get(id)!, status: 'clean' });
+        setParagraphStates(currentStates => {
+            const finalStates = new Map(currentStates);
+            dirtyParagraphs.forEach(({ id }) => {
+                const currentState = finalStates.get(id);
+                if (currentState) {
+                   finalStates.set(id, { ...currentState, status: 'clean' });
+                }
+            });
+            return finalStates;
         });
-        setParagraphStates(finalStates);
 
     } catch (error) {
         console.error('Error analyzing dirty paragraphs:', error);
         setAnalysisStatus('error');
-        // Revert status for failed paragraphs
-        const revertedStates = new Map(paragraphStates);
-        dirtyParagraphs.forEach(({ id }) => {
-            revertedStates.set(id, { ...revertedStates.get(id)!, status: 'dirty' });
+        setParagraphStates(currentStates => {
+            const revertedStates = new Map(currentStates);
+            dirtyParagraphs.forEach(({ id }) => {
+                 const currentState = revertedStates.get(id);
+                if (currentState) {
+                  revertedStates.set(id, { ...currentState, status: 'dirty' });
+                }
+            });
+            return revertedStates;
         });
-        setParagraphStates(revertedStates);
     }
+  }, [editor]);
 
-  }, 2000), [paragraphStates, editor, selectedTone, processChunkedAIAnalysis]);
+  const debouncedAnalysis = useRef(debounce(analysisFn, 2000)).current;
+
+  useEffect(() => {
+    debouncedAnalysis.callback = analysisFn;
+  }, [analysisFn, debouncedAnalysis]);
+  
+  const runAnalysisOnDirtyParagraphs = debouncedAnalysis;
+  // --- END REFACTORED ---
 
   // DEBOUNCED SPELL CHECK FUNCTION
   const debouncedSpellCheck = useCallback(debounce((text: string, doc: Node) => {
