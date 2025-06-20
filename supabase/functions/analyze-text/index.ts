@@ -29,6 +29,86 @@ function getCorsHeaders(origin: string | null) {
   };
 }
 
+// Rate limiting function
+function checkRateLimit(userId: string): { allowed: boolean; remaining: number; resetTime: number } {
+  const now = Date.now();
+  const userLimit = rateLimitStore.get(userId);
+  
+  if (!userLimit || now > userLimit.resetTime) {
+    // Reset or initialize rate limit
+    rateLimitStore.set(userId, {
+      count: 1,
+      resetTime: now + RATE_LIMIT_WINDOW
+    });
+    return { allowed: true, remaining: MAX_REQUESTS_PER_MINUTE - 1, resetTime: now + RATE_LIMIT_WINDOW };
+  }
+  
+  if (userLimit.count >= MAX_REQUESTS_PER_MINUTE) {
+    return { allowed: false, remaining: 0, resetTime: userLimit.resetTime };
+  }
+  
+  // Increment count
+  userLimit.count++;
+  rateLimitStore.set(userId, userLimit);
+  
+  return { allowed: true, remaining: MAX_REQUESTS_PER_MINUTE - userLimit.count, resetTime: userLimit.resetTime };
+}
+
+// Input validation function
+function validateRequest(body: any): { valid: boolean; error?: string } {
+  if (!body || typeof body !== 'object') {
+    return { valid: false, error: 'Invalid request body' };
+  }
+  
+  if (!body.task || typeof body.task !== 'string') {
+    return { valid: false, error: 'Missing or invalid task parameter' };
+  }
+  
+  // Validate task-specific requirements
+  switch (body.task) {
+    case 'analyze':
+      if (!body.chunks || typeof body.chunks !== 'object') {
+        return { valid: false, error: 'Missing or invalid chunks for analysis' };
+      }
+      
+      // Check total text length
+      const totalLength = Object.values(body.chunks).reduce((acc: number, chunk: any) => {
+        return acc + (typeof chunk === 'string' ? chunk.length : 0);
+      }, 0);
+      
+      if (totalLength > MAX_TEXT_LENGTH) {
+        return { valid: false, error: `Total text length exceeds limit of ${MAX_TEXT_LENGTH} characters` };
+      }
+      break;
+      
+    case 'rewrite':
+      if (!body.text || typeof body.text !== 'string') {
+        return { valid: false, error: 'Missing or invalid text for rewrite' };
+      }
+      if (!body.action || typeof body.action !== 'string') {
+        return { valid: false, error: 'Missing or invalid action for rewrite' };
+      }
+      if (body.text.length > MAX_TEXT_LENGTH) {
+        return { valid: false, error: `Text length exceeds limit of ${MAX_TEXT_LENGTH} characters` };
+      }
+      break;
+      
+    case 'latex':
+      if (!body.prompt || typeof body.prompt !== 'string') {
+        return { valid: false, error: 'Missing or invalid prompt for LaTeX generation' };
+      }
+      if (body.prompt.length > 1000) {
+        return { valid: false, error: 'Prompt length exceeds limit of 1000 characters' };
+      }
+      break;
+      
+    default:
+      return { valid: false, error: `Invalid task: ${body.task}` };
+  }
+  
+  return { valid: true };
+}
+
 // Authentication function using Supabase's built-in JWT verification
 async function authenticateRequest(req: Request): Promise<{ authenticated: boolean; user?: any; error?: string }> {
   try {
@@ -203,8 +283,31 @@ serve(async (req) => {
     });
   }
 
+  // Apply rate limiting
+  const rateLimit = checkRateLimit(auth.user!.id);
+  if (!rateLimit.allowed) {
+    return new Response(JSON.stringify({ 
+      error: 'Rate limit exceeded', 
+      remaining: rateLimit.remaining,
+      resetTime: rateLimit.resetTime 
+    }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      status: 429,
+    });
+  }
+
   try {
     const body = await req.json();
+    
+    // Validate request
+    const validation = validateRequest(body);
+    if (!validation.valid) {
+      return new Response(JSON.stringify({ error: validation.error }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
+    
     const { task } = body;
     let data;
 
@@ -225,7 +328,12 @@ serve(async (req) => {
     return new Response(
       JSON.stringify(data),
       {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { 
+          ...corsHeaders, 
+          'Content-Type': 'application/json',
+          'X-RateLimit-Remaining': rateLimit.remaining.toString(),
+          'X-RateLimit-Reset': rateLimit.resetTime.toString()
+        },
         status: 200,
       }
     )

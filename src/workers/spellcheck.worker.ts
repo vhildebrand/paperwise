@@ -35,7 +35,6 @@ const initializeNSpell = (): Promise<void> => {
 
 self.onmessage = async (event: MessageEvent<{ text: string }>) => {
     try {
-        console.log('Spell checker worker received message:', event.data);
         await initializeNSpell();
 
         if (!nspellInstance) {
@@ -43,9 +42,7 @@ self.onmessage = async (event: MessageEvent<{ text: string }>) => {
         }
 
         const { text } = event.data;
-        console.log('Processing text for spell check, length:', text.length);
         const words = text.match(/\b[a-zA-Z']+\b/g) || [];
-        console.log('Found words:', words.length);
         const misspellings = new Set<string>();
 
         for (const word of words) {
@@ -54,13 +51,11 @@ self.onmessage = async (event: MessageEvent<{ text: string }>) => {
             }
         }
 
-        console.log('Found misspellings:', misspellings.size);
         const results = Array.from(misspellings).map(word => ({
             word,
             suggestions: nspellInstance!.suggest(word)
         }));
 
-        console.log('Sending spell check results:', results);
         postMessage({ type: 'SPELL_RESULT', results });
 
     } catch (error) {

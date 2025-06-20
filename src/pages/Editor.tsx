@@ -222,7 +222,6 @@ const Editor: React.FC = () => {
       });
       
       if(hasDirtySentences) {
-        console.log(`[${new Date().toLocaleTimeString()}] Found dirty sentences. Queueing analysis.`);
         setSentenceStates(newStates);
         runAnalysisOnDirtySentences(); 
       }
