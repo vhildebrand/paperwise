@@ -244,6 +244,9 @@ const Editor: React.FC = () => {
     const doc = editor.state.doc;
     const currentSentenceStates = sentenceStatesRef.current;
     
+    // Track which specific sentences were re-analyzed to avoid removing suggestions from other sentences
+    const reanalyzedSentenceIds = new Set(Object.keys(results));
+    
     for (const sentenceId in results) {
       const sentenceSuggestions = results[sentenceId];
       if (sentenceSuggestions.length === 0) continue;
@@ -276,19 +279,30 @@ const Editor: React.FC = () => {
       }
     }
 
-    // Filter out old suggestions from re-analyzed blocks to prevent duplicates
-    const reanalyzedBlockIds = new Set(Object.keys(results).map(id => currentSentenceStates.get(id)?.blockId).filter(Boolean));
-    
+    // Filter out old suggestions only from the specific sentences that were re-analyzed
     const existingSuggestions = suggestions.filter(s => {
-      let suggestionBlockId: string | undefined;
-      doc.nodesBetween(s.startIndex, s.startIndex + 1, (node, pos) => {
-          if(node.attrs['data-block-id']) {
-            suggestionBlockId = node.attrs['data-block-id'];
-            return false;
-          }
-          return true;
-      });
-      return !reanalyzedBlockIds.has(suggestionBlockId);
+      // Find which sentence this suggestion belongs to
+      for (const sentenceId of reanalyzedSentenceIds) {
+        const state = currentSentenceStates.get(sentenceId);
+        if (!state) continue;
+        
+        const blockNode = doc.nodeAt(state.blockPos);
+        if (!blockNode) continue;
+        
+        const blockText = blockNode.textContent;
+        const sentenceStartInBlock = blockText.indexOf(state.text);
+        if (sentenceStartInBlock === -1) continue;
+
+        const blockContentStartPos = state.blockPos + 1;
+        const sentenceStartIndex = blockContentStartPos + sentenceStartInBlock;
+        const sentenceEndIndex = sentenceStartIndex + state.text.length;
+        
+        // If this suggestion overlaps with a re-analyzed sentence, remove it
+        if (s.startIndex < sentenceEndIndex && s.endIndex > sentenceStartIndex) {
+          return false;
+        }
+      }
+      return true;
     });
 
     const allSuggestions = [...existingSuggestions, ...newSuggestions];
