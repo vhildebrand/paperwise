@@ -22,6 +22,7 @@ import { calculateFleschKincaid } from '../lib/readability';
 import { IconSaveStatus, IconArrowLeft } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
 import SuggestionsSidebar from '../components/SuggestionsSidebar';
+import SuggestionActionBox from '../components/SuggestionActionBox';
 import './Editor.css';
 
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
@@ -83,6 +84,7 @@ const Editor: React.FC = () => {
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
   const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
+  const [popupPosition, setPopupPosition] = useState<{ top: number, left: number } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
@@ -216,9 +218,15 @@ const Editor: React.FC = () => {
       decorations: () => decorations,
       handleDOMEvents: {
         click: (view: EditorView, event: MouseEvent) => {
+          const editorRect = (editorRef.current as HTMLElement).getBoundingClientRect();
           const coords = { left: event.clientX, top: event.clientY };
           const posResult = view.posAtCoords(coords);
-          if (!posResult) return false;
+          
+          if (!posResult) {
+            setSelectedSuggestion(null);
+            setPopupPosition(null);
+            return false;
+          }
 
           const { pos } = posResult;
           const clickedDecorations = decorations.find(pos, pos);
@@ -227,9 +235,21 @@ const Editor: React.FC = () => {
               const suggestion = suggestions.find(s => s.startIndex <= pos && s.endIndex >= pos);
               if (suggestion) {
                   setSelectedSuggestion(suggestion);
+                  
+                  const startPosCoords = view.coordsAtPos(suggestion.startIndex);
+                  const endPosCoords = view.coordsAtPos(suggestion.endIndex);
+                  
+                  const top = startPosCoords.top - editorRect.top;
+                  const left = (startPosCoords.left + endPosCoords.right) / 2 - editorRect.left;
+                  
+                  setPopupPosition({ top, left });
+                  
                   return true;
               }
           }
+          
+          setSelectedSuggestion(null);
+          setPopupPosition(null);
           return false;
         }
       },
@@ -421,6 +441,7 @@ const Editor: React.FC = () => {
     setDecorations(DecorationSet.create(editor.state.doc, newDecorations));
     
     setSelectedSuggestion(null);
+    setPopupPosition(null);
 
     requestAnimationFrame(() => {
       isAcceptingSuggestion.current = false;
@@ -442,6 +463,7 @@ const Editor: React.FC = () => {
     }
     
     setSelectedSuggestion(null);
+    setPopupPosition(null);
   };
 
    // --- NEW BULK ACTION HANDLERS ---
@@ -463,6 +485,11 @@ const Editor: React.FC = () => {
     }
     
     setSelectedSuggestion(null);
+    setPopupPosition(null);
+
+    requestAnimationFrame(() => {
+      isAcceptingSuggestion.current = false;
+    });
   };
 
   const handleBulkAccept = (suggestionsToAccept: AnalysisSuggestion[]) => {
@@ -508,6 +535,7 @@ const Editor: React.FC = () => {
     setDecorations(DecorationSet.create(editor.state.doc, newDecorations));
     
     setSelectedSuggestion(null);
+    setPopupPosition(null);
 
     requestAnimationFrame(() => {
       isAcceptingSuggestion.current = false;
@@ -619,7 +647,7 @@ const Editor: React.FC = () => {
               />
             )}
             
-            <div className="flex-1 p-6 overflow-y-auto" ref={editorRef}>
+            <div className="flex-1 p-6 overflow-y-auto relative" ref={editorRef}>
               <div 
                 className="max-w-4xl mx-auto bg-white p-8 shadow-lg rounded-lg min-h-full cursor-text"
                 onClick={() => editor?.commands.focus()}
@@ -629,6 +657,14 @@ const Editor: React.FC = () => {
               >
                 {editor && <EditorContent editor={editor} />}
               </div>
+              {selectedSuggestion && popupPosition && (
+                <SuggestionActionBox
+                  suggestion={selectedSuggestion}
+                  onAccept={handleAcceptSuggestion}
+                  onDismiss={handleDismissSuggestion}
+                  position={popupPosition}
+                />
+              )}
             </div>
           </div>
         </Panel>
