@@ -444,6 +444,77 @@ const Editor: React.FC = () => {
     setSelectedSuggestion(null);
   };
 
+   // --- NEW BULK ACTION HANDLERS ---
+   const handleBulkDismiss = (suggestionsToDismiss: AnalysisSuggestion[]) => {
+    if (suggestionsToDismiss.length === 0) return;
+    
+    const idsToDismiss = new Set(suggestionsToDismiss.map(s => s.chunkId));
+    const updatedSuggestions = suggestions.filter(s => !idsToDismiss.has(s.chunkId));
+    setSuggestions(updatedSuggestions);
+    
+    if (editor) {
+      const doc = editor.state.doc;
+      const newDecorations = updatedSuggestions.map(s => 
+        Decoration.inline(s.startIndex, s.endIndex, {
+          class: `suggestion suggestion-${s.type}`,
+        })
+      );
+      setDecorations(DecorationSet.create(doc, newDecorations));
+    }
+    
+    setSelectedSuggestion(null);
+  };
+
+  const handleBulkAccept = (suggestionsToAccept: AnalysisSuggestion[]) => {
+    if (!editor || suggestionsToAccept.length === 0) return;
+
+    isAcceptingSuggestion.current = true;
+
+    const { tr } = editor.state;
+    
+    // Sort suggestions by startIndex in descending order to apply changes
+    // from the end of the document to the beginning. This prevents character
+    // offsets from becoming invalid after each replacement.
+    const sortedSuggestions = [...suggestionsToAccept].sort((a, b) => b.startIndex - a.startIndex);
+    
+    sortedSuggestions.forEach(s => {
+        tr.replaceWith(s.startIndex, s.endIndex, editor.schema.text(s.suggestion));
+    });
+
+    // Dispatch a single transaction for all replacements.
+    const mapping = tr.mapping;
+    editor.view.dispatch(tr);
+
+    // Filter out the suggestions that were just accepted.
+    const idsToAccept = new Set(suggestionsToAccept.map(s => s.chunkId));
+    const remainingSuggestions = suggestions
+      .filter(s => !idsToAccept.has(s.chunkId))
+      .map(s => {
+        // Remap the positions of the remaining suggestions based on the transaction.
+        const from = mapping.map(s.startIndex);
+        const to = mapping.map(s.endIndex);
+        if (from >= to) return null; // Suggestion was inside a replaced range.
+        return { ...s, startIndex: from, endIndex: to };
+      })
+      .filter(Boolean) as AnalysisSuggestion[];
+
+    setSuggestions(remainingSuggestions);
+
+    const newDecorations = remainingSuggestions.map(s => 
+      Decoration.inline(s.startIndex, s.endIndex, {
+        class: `suggestion suggestion-${s.type}`,
+      })
+    );
+    setDecorations(DecorationSet.create(editor.state.doc, newDecorations));
+    
+    setSelectedSuggestion(null);
+
+    requestAnimationFrame(() => {
+      isAcceptingSuggestion.current = false;
+    });
+  };
+  // --- END OF NEW HANDLERS ---
+
   // FETCH DOCUMENT
   useEffect(() => {
     if (!user || !editor) return;
@@ -567,6 +638,8 @@ const Editor: React.FC = () => {
           selectedSuggestion={selectedSuggestion}
           onAccept={handleAcceptSuggestion}
           onDismiss={handleDismissSuggestion}
+          onBulkAccept={handleBulkAccept}
+          onBulkDismiss={handleBulkDismiss}
           onSelect={setSelectedSuggestion}
           analysisStatus={analysisStatus}
           isVisible={sidebarVisible}

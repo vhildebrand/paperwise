@@ -16,6 +16,8 @@ interface SuggestionsSidebarProps {
   suggestions: AnalysisSuggestion[];
   onAccept: (suggestion: AnalysisSuggestion) => void;
   onDismiss: (suggestion: AnalysisSuggestion) => void;
+  onBulkAccept: (suggestions: AnalysisSuggestion[]) => void;
+  onBulkDismiss: (suggestions: AnalysisSuggestion[]) => void;
   onSelect: (suggestion: AnalysisSuggestion | null) => void;
   selectedSuggestion: AnalysisSuggestion | null;
   analysisStatus: AnalysisStatus;
@@ -30,6 +32,8 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
   suggestions, 
   onAccept,
   onDismiss,
+  onBulkAccept,
+  onBulkDismiss,
   onSelect,
   selectedSuggestion,
   analysisStatus,
@@ -72,14 +76,13 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
     return suggestions.filter(s => s.type === filter).length;
   };
 
+  // FIXED: This now calls the appropriate bulk handler instead of looping.
   const handleBulkAction = (action: 'accept' | 'dismiss') => {
-    filteredSuggestions.forEach(suggestion => {
-      if (action === 'accept') {
-        onAccept(suggestion);
-      } else {
-        onDismiss(suggestion);
-      }
-    });
+    if (action === 'accept') {
+      onBulkAccept(filteredSuggestions);
+    } else {
+      onBulkDismiss(filteredSuggestions);
+    }
   };
 
   if (!isVisible) {
