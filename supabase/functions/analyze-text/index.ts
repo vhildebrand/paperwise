@@ -66,92 +66,33 @@ const openai = new OpenAI({
   apiKey: Deno.env.get('OPENAI_API_KEY'),
 })
 
-const systemPrompt = `
-You are an expert writing assistant. Your task is to analyze the user's text and provide suggestions for improvement.
-- Analyze the text for spelling, grammar, style, clarity, and tone issues.
-- You MUST respond with a JSON array of suggestion objects. Do not add any other text or commentary outside of the JSON array.
-- Each suggestion object in the array must have the following structure:
-  {
-    "type": "spelling" | "grammar",
-    "originalText": "the exact text to be replaced from the user's input",
-    "suggestion": "the new text to insert",
-    "explanation": "a brief, user-friendly explanation of the change"
-  }
-- If you find no issues, return an empty array: [].
-- It is critical that 'originalText' is an EXACT substring from the provided user text.
-
-Example Request Text: "I can has cheezburger. its so gud."
-Example JSON Response:
-[
-  {
-    "type": "grammar",
-    "originalText": "can has",
-    "suggestion": "can have a",
-    "explanation": "Incorrect verb form and missing article."
-  },
-  {
-    "type": "spelling",
-    "originalText": "cheezburger",
-    "suggestion": "cheeseburger",
-    "explanation": "Potential spelling mistake."
-  },
-  {
-    "type": "grammar",
-    "originalText": "its so gud",
-    "suggestion": "It's so good",
-    "explanation": "Corrects the contraction 'it's' and the word 'good'."
-  }
-]
-`;
-
 const newSystemPrompt = `
-You are an expert writing assistant. Your task is to analyze multiple chunks of text from a user and provide suggestions for improvement.
-- The user will provide a JSON object with text chunks, each identified by a unique key.
-- You MUST respond with a single JSON object. Do not add any other text or commentary outside of this JSON object.
-- The response object should have keys corresponding to the original chunk keys.
-- The value for each key should be a JSON array of suggestion objects for that chunk.
-- Each suggestion object in the array must have the following structure:
-  {
-    "type": "spelling" | "grammar" | "style" | "clarity" | "tone",
-    "originalText": "the exact text to be replaced from the user's input chunk",
-    "suggestion": "the new text to insert",
-    "explanation": "a brief, user-friendly explanation of the change"
-  }
-- If a chunk has no issues, its corresponding value should be an empty array: [].
-- It is critical that 'originalText' is an EXACT substring from the provided user text chunk.
+You are an expert writing assistant. You will be given a JSON object containing text chunks to analyze, where each key is a unique sentence identifier.
+- The user will provide a JSON object with a "tone" and a "chunks" object.
+- The "chunks" object contains key-value pairs, where the key is a unique ID (e.g., "blockId-sentenceIndex") and the value is the sentence text.
+- You MUST respond with a single JSON object where keys are the SAME sentence identifiers from the request.
+- The value for each key must be an array of suggestion objects for that sentence.
+- Each suggestion object must have the structure: { "type": "spelling" | "grammar" | "style" | "clarity" | "tone", "originalText": "the exact text to be replaced", "suggestion": "the new text", "explanation": "a brief explanation" }.
+- If a sentence has no issues, return an empty array for its key, like this: "some-id-3": [].
+- It is critical that 'originalText' is an EXACT substring from the provided sentence.
 
 Example Request:
 {
   "tone": "formal",
   "chunks": {
-    "chunk1": "I can has cheezburger.",
-    "chunk2": "its so gud."
+    "xyz789-0": "I can has cheezburger.",
+    "xyz789-1": "its so gud."
   }
 }
 
 Example JSON Response:
 {
-  "chunk1": [
-    {
-      "type": "grammar",
-      "originalText": "can has",
-      "suggestion": "can have a",
-      "explanation": "Incorrect verb form and missing article."
-    },
-    {
-      "type": "spelling",
-      "originalText": "cheezburger",
-      "suggestion": "cheeseburger",
-      "explanation": "Potential spelling mistake."
-    }
+  "xyz789-0": [
+    { "type": "grammar", "originalText": "can has", "suggestion": "can have a", "explanation": "Incorrect verb form and missing article." },
+    { "type": "spelling", "originalText": "cheezburger", "suggestion": "cheeseburger", "explanation": "Potential spelling mistake." }
   ],
-  "chunk2": [
-    {
-      "type": "grammar",
-      "originalText": "its so gud",
-      "suggestion": "It's so good",
-      "explanation": "Corrects the contraction 'it's' and the word 'good'."
-    }
+  "xyz789-1": [
+    { "type": "grammar", "originalText": "its so gud", "suggestion": "It's so good", "explanation": "Corrects contraction and spelling." }
   ]
 }
 `;

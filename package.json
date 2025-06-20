@@ -39,6 +39,7 @@
     "retext": "^9.0.0",
     "retext-english": "^5.0.0",
     "retext-spell": "^6.1.0",
+    "sentence-tokenizer": "^1.0.1",
     "unified": "^11.0.5",
     "uuid": "^11.1.0"
   },

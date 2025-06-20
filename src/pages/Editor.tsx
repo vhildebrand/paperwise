@@ -26,10 +26,22 @@ import './Editor.css';
 
 import { Decoration, DecorationSet, type EditorView } from 'prosemirror-view';
 import { Node } from 'prosemirror-model';
+import Tokenizer from 'sentence-tokenizer';
+import { nanoid } from 'nanoid';
 
-import { CustomParagraph, ParagraphIdGenerator } from '../lib/tiptap-extensions';
+import { CustomParagraph, BlockIdGenerator } from '../lib/tiptap-extensions';
 
 type Document = Database['public']['Tables']['documents']['Row'];
+
+// Define the new state structure for sentences
+interface SentenceState {
+  hash: string;
+  status: 'clean' | 'dirty' | 'analyzing';
+  blockId: string;
+  blockPos: number;
+  sentenceIndexInBlock: number;
+  text: string;
+}
 
 function debounce<T extends (...args: any[]) => any>(
   func: T,
@@ -58,11 +70,6 @@ const simpleHash = (str: string) => {
   return String(hash);
 };
 
-interface ParagraphState {
-  hash: string;
-  status: 'clean' | 'dirty' | 'analyzing';
-}
-
 const Editor: React.FC = () => {
   const { user } = useAuthStore();
   const { documentId } = useParams<{ documentId: string }>();
@@ -74,20 +81,28 @@ const Editor: React.FC = () => {
   const [editedTitle, setEditedTitle] = useState('');
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error'>('saved');
   const [suggestions, setSuggestions] = useState<AnalysisSuggestion[]>([]);
-  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle'); //
+  const [analysisStatus, setAnalysisStatus] = useState<AnalysisStatus>('idle');
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
   const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0, fleschKincaid: 0 });
   const [decorations, setDecorations] = useState(DecorationSet.empty);
-  const [paragraphStates, setParagraphStates] = useState<Map<string, ParagraphState>>(new Map());
+  const [sentenceStates, setSentenceStates] = useState<Map<string, SentenceState>>(new Map());
   const [analysisStartTime, setAnalysisStartTime] = useState<Date | null>(null);
   const [analysisDuration, setAnalysisDuration] = useState(0);
 
   const editorRef = useRef<HTMLDivElement>(null);
-  const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
   const isAcceptingSuggestion = useRef(false);
+
+  // Create refs for state values needed in callbacks to avoid stale closures
+  const sentenceStatesRef = useRef(sentenceStates);
+  sentenceStatesRef.current = sentenceStates;
+  
+  const selectedToneRef = useRef(selectedTone);
+  selectedToneRef.current = selectedTone;
+
+  const tokenizer = useMemo(() => new Tokenizer('ChuckNorris'), []);
 
   // DEBOUNCED AUTOSAVE FUNCTION
   const debouncedSave = useCallback(debounce(async (content: string) => {
@@ -115,68 +130,83 @@ const Editor: React.FC = () => {
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        history: false, // Using the History extension instead
+        history: false,
         heading: { levels: [1, 2, 3] },
-        paragraph: false, // Disable the default paragraph extension
+        paragraph: false, 
       }),
-      CustomParagraph, // Use our custom paragraph extension
+      CustomParagraph,
       Underline,
       Strike,
-      Table.configure({
-        resizable: true,
-      }),
+      Table.configure({ resizable: true }),
       TableRow,
       TableHeader,
       TableCell,
       History,
       MathExtension,
-      ParagraphIdGenerator, // Add the extension that provides the plugin
+      BlockIdGenerator, // Use the new, more generic block ID generator
     ],
     content: '',
     editable: true,
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
       const text = editor.getText();
-      const doc = editor.state.doc;
-      const words = text.split(/\s+/).filter(Boolean).length;
-      const characters = text.length;
-      const readingTime = Math.ceil(words / 200);
-      const fleschKincaid = calculateFleschKincaid(text);
-      setDocumentStats({ words, characters, readingTime, fleschKincaid });
+      setDocumentStats({
+          words: text.split(/\s+/).filter(Boolean).length,
+          characters: text.length,
+          readingTime: Math.ceil(text.split(/\s+/).filter(Boolean).length / 200),
+          fleschKincaid: calculateFleschKincaid(text)
+      });
       debouncedSave(html);
 
-      if (isAcceptingSuggestion.current) {
-        return;
-      }
+      if (isAcceptingSuggestion.current) return;
       
-      // New logic for dirty checking
-      const newStates = new Map(paragraphStates);
-      let hasDirtyParagraphs = false;
+      const newStates = new Map<string, SentenceState>();
+      let hasDirtySentences = false;
 
       editor.state.doc.descendants((node, pos) => {
-        if (node.type.name === 'paragraph') {
-          const id = node.attrs['data-paragraph-id'];
-          if (!id) return;
+        const blockId = node.attrs['data-block-id'];
+        if (!blockId || node.isLeaf) return;
 
-          const text = node.textContent;
-          const hash = simpleHash(text);
-          const currentState = newStates.get(id);
-
-          if (!currentState || currentState.hash !== hash) {
-            newStates.set(id, { hash, status: 'dirty' });
-            hasDirtyParagraphs = true;
-          }
+        if (node.type.name === 'math_display' || node.type.name === 'math_inline') {
+            return false;
         }
+
+        const textContent = node.textContent;
+        if (!textContent) return;
+
+        // CORRECTED USAGE: Use .setEntry() then .getSentences()
+        tokenizer.setEntry(textContent);
+        const sentences = tokenizer.getSentences();
+        
+        sentences.forEach((sentenceText: string, index: number) => { // Types are now correctly inferred
+          const sentenceId = `${blockId}-${index}`;
+          const hash = simpleHash(sentenceText);
+          const oldState = sentenceStatesRef.current.get(sentenceId);
+
+          const currentState: SentenceState = {
+            hash,
+            status: 'clean',
+            blockId,
+            blockPos: pos,
+            sentenceIndexInBlock: index,
+            text: sentenceText,
+          };
+          
+          if (!oldState || oldState.hash !== hash) {
+            currentState.status = 'dirty';
+            hasDirtySentences = true;
+          } else {
+            currentState.status = oldState.status;
+          }
+          newStates.set(sentenceId, currentState);
+        });
       });
       
-      if(hasDirtyParagraphs) {
-        console.log(`[${new Date().toLocaleTimeString()}] Found ${newStates.size - paragraphStates.size} new/changed paragraphs. Queueing analysis.`);
-        setParagraphStates(newStates);
-        runAnalysisOnDirtyParagraphs();
+      if(hasDirtySentences) {
+        console.log(`[${new Date().toLocaleTimeString()}] Found dirty sentences. Queueing analysis.`);
+        setSentenceStates(newStates);
+        runAnalysisOnDirtySentences(); 
       }
-
-      // OLD CALL:
-      // debouncedGrammarCheck(text);
     },
     editorProps: {
       attributes: {
@@ -197,383 +227,178 @@ const Editor: React.FC = () => {
               const suggestion = suggestions.find(s => s.startIndex <= pos && s.endIndex >= pos);
               if (suggestion) {
                   setSelectedSuggestion(suggestion);
-                  return true; // handled
+                  return true;
               }
           }
-          return false; // not handled
+          return false;
         }
       },
     },
   });
 
-  // SPELL CHECK FUNCTION
-  const processSpellCheckResults = useCallback((results: any[], doc: Node) => {
-    console.log('Processing spell check results:', results);
-    const newSuggestions: AnalysisSuggestion[] = [];
-    const newDecorations: Decoration[] = [];
-
-    // Create a map of misspelled words for quick lookup
-    const misspelledWords = new Map(results.map(r => [r.word.toLowerCase(), r.suggestions]));
-
-    doc.descendants((node, pos) => {
-        if (!node.isText) {
-            return;
-        }
-
-        const text = node.text || '';
-        const words = text.match(/\b[a-zA-Z']+\b/g) || [];
-        
-        let currentPos = pos;
-        for (const word of words) {
-            const wordStart = text.indexOf(word, currentPos - pos);
-            if (wordStart === -1) continue;
-            
-            const startIndex = pos + wordStart;
-            const endIndex = startIndex + word.length;
-            
-            // Check if this word is misspelled
-            if (misspelledWords.has(word.toLowerCase())) {
-                const suggestions = misspelledWords.get(word.toLowerCase()) || [];
-                
-                // Create a suggestion for the sidebar
-                newSuggestions.push({
-                    type: 'spelling',
-                    originalText: word,
-                    suggestion: suggestions[0] || word,
-                    explanation: `Possible spelling mistake. Suggestions: ${suggestions.join(', ')}`,
-                    startIndex,
-                    endIndex,
-                    chunkId: `${startIndex}-${endIndex}`
-                });
-
-                // Create a decoration for inline highlighting
-                newDecorations.push(
-                    Decoration.inline(startIndex, endIndex, {
-                        class: 'suggestion suggestion-spelling',
-                    })
-                );
-            }
-            
-            currentPos = pos + wordStart + word.length;
-        }
-    });
-    
-    console.log('Created suggestions:', newSuggestions.length, 'decorations:', newDecorations.length);
-    
-    // Only update spelling suggestions, preserve grammar suggestions
-    setSuggestions(newSuggestions);
-    
-    // Update decorations - combine with existing grammar decorations
-    if(editor) {
-      updateDecorations(newDecorations, 'spelling');
-    }
-
-  }, [editor]);
-
-  // Unified decoration management
-  const updateDecorations = useCallback((newDecorations: Decoration[], type: 'spelling' | 'grammar') => {
+  // NEW: Process analysis results from the backend
+  const processSentenceAnalysisResults = useCallback((results: Record<string, any[]>) => {
     if (!editor) return;
-    
+
+    const newSuggestions: AnalysisSuggestion[] = [];
     const doc = editor.state.doc;
-    const existingDecorations = decorations.find(0, doc.content.size);
+    const currentSentenceStates = sentenceStatesRef.current;
     
-    // Filter out existing decorations of the same type
-    const filteredExisting = existingDecorations.filter(dec => {
-      const className = dec.spec?.class || '';
-      if (type === 'spelling') {
-        return !className.includes('suggestion-spelling');
-      } else {
-        return !className.includes('suggestion-grammar');
+    for (const sentenceId in results) {
+      const sentenceSuggestions = results[sentenceId];
+      if (sentenceSuggestions.length === 0) continue;
+
+      const state = currentSentenceStates.get(sentenceId);
+      if (!state) continue;
+      
+      const blockNode = doc.nodeAt(state.blockPos);
+      if (!blockNode) continue;
+      
+      const blockText = blockNode.textContent;
+      const sentenceStartInBlock = blockText.indexOf(state.text);
+      if(sentenceStartInBlock === -1) continue;
+
+      const blockContentStartPos = state.blockPos + 1;
+
+      for (const res of sentenceSuggestions) {
+        const indexInSentence = state.text.indexOf(res.originalText);
+        if (indexInSentence === -1) continue;
+
+        const startIndex = blockContentStartPos + sentenceStartInBlock + indexInSentence;
+        const endIndex = startIndex + res.originalText.length;
+
+        newSuggestions.push({
+          ...res,
+          startIndex,
+          endIndex,
+          chunkId: nanoid(), 
+        });
       }
-    });
-    
-    // Combine filtered existing decorations with new ones
-    const allDecorations = [...filteredExisting, ...newDecorations];
-    setDecorations(DecorationSet.create(doc, allDecorations));
-  }, [editor, decorations]);
-
-  const processChunkedAIAnalysis = useCallback((results: Record<string, any[]>, paragraphs: {id: string, pos: number}[]) => {
-    if (!editor) return;
-
-    console.log(`[${new Date().toLocaleTimeString()}] Received AI suggestions:`, results);
-
-    const newSuggestions: AnalysisSuggestion[] = [];
-    const newDecorations: Decoration[] = [];
-    const doc = editor.state.doc;
-
-    // Create a map of paragraph start positions
-    const paragraphPositions = new Map(paragraphs.map(p => [p.id, p.pos]));
-
-    for (const chunkId in results) {
-        const chunkSuggestions = results[chunkId];
-        const chunkStartPos = paragraphPositions.get(chunkId);
-
-        if (chunkStartPos === undefined) {
-            console.warn(`Could not find start position for chunk ${chunkId}`);
-            continue;
-        }
-
-        for (const res of chunkSuggestions) {
-            const textNodeStart = chunkStartPos + 1; // +1 to be inside the paragraph node
-            
-            let found = false;
-            // Search within the paragraph for the original text
-            const paraNode = doc.nodeAt(chunkStartPos);
-            if (!paraNode) continue;
-            
-            const paraEndPos = chunkStartPos + paraNode.nodeSize;
-            doc.nodesBetween(textNodeStart, paraEndPos, (node, pos) => {
-                if(found) return false;
-                if (node.isText) {
-                    const indexInNode = (node.textContent || '').indexOf(res.originalText);
-                    if (indexInNode !== -1) {
-                        const startIndex = pos + indexInNode;
-                        const endIndex = startIndex + res.originalText.length;
-                        
-                        const suggestion: AnalysisSuggestion = {
-                            type: res.type,
-                            originalText: res.originalText,
-                            suggestion: res.suggestion,
-                            explanation: res.explanation,
-                            startIndex,
-                            endIndex,
-                            chunkId: `${res.type}-${startIndex}`
-                        };
-                        newSuggestions.push(suggestion);
-
-                        newDecorations.push(
-                            Decoration.inline(startIndex, endIndex, {
-                                class: `suggestion suggestion-${res.type}`,
-                            })
-                        );
-                        found = true;
-                        return false; // stop searching
-                    }
-                }
-                return true;
-            });
-             if (!found) {
-                console.warn(`Could not find text "${res.originalText}" in document for chunk ${chunkId}.`);
-            }
-        }
     }
-    
-    const reanalyzedParaIds = new Set(Object.keys(results));
+
+    // Filter out old suggestions from re-analyzed blocks to prevent duplicates
+    const reanalyzedBlockIds = new Set(Object.keys(results).map(id => currentSentenceStates.get(id)?.blockId).filter(Boolean));
     
     const existingSuggestions = suggestions.filter(s => {
-        let paraId = '';
-        doc.nodesBetween(s.startIndex, s.endIndex, (node, pos) => {
-            if (node.type.name === 'paragraph') {
-                paraId = node.attrs['data-paragraph-id'];
-                return false;
-            }
-            return true;
-        })
-        return !reanalyzedParaIds.has(paraId);
+      let suggestionBlockId: string | undefined;
+      doc.nodesBetween(s.startIndex, s.startIndex + 1, (node, pos) => {
+          if(node.attrs['data-block-id']) {
+            suggestionBlockId = node.attrs['data-block-id'];
+            return false;
+          }
+          return true;
+      });
+      return !reanalyzedBlockIds.has(suggestionBlockId);
     });
 
     const allSuggestions = [...existingSuggestions, ...newSuggestions];
     setSuggestions(allSuggestions);
-
-    const existingDecorations = decorations.find(0, doc.content.size);
-    const filteredDecorations = existingDecorations.filter(dec => {
-        let paraId = '';
-        doc.nodesBetween(dec.from, dec.to, (node, pos) => {
-            if (node.type.name === 'paragraph') {
-                paraId = node.attrs['data-paragraph-id'];
-                return false;
-            }
-            return true;
-        })
-        return !reanalyzedParaIds.has(paraId);
-    });
-
-    setDecorations(DecorationSet.create(doc, [...filteredDecorations, ...newDecorations]));
-
-  }, [editor, suggestions, decorations]);
-
-  // --- REFACTORED: Stable debounced analysis trigger ---
-  const paragraphStatesRef = useRef(paragraphStates);
-  paragraphStatesRef.current = paragraphStates;
-  
-  const selectedToneRef = useRef(selectedTone);
-  selectedToneRef.current = selectedTone;
-
-  const processChunkedAIAnalysisRef = useRef(processChunkedAIAnalysis);
-  processChunkedAIAnalysisRef.current = processChunkedAIAnalysis;
-  
-  const analysisFn = useCallback(async () => {
-    if (!editor) return;
-
-    const currentParagraphStates = paragraphStatesRef.current;
     
-    const dirtyParagraphs: { id: string; text: string; pos: number }[] = [];
-    editor.state.doc.descendants((node, pos) => {
-        if (node.type.name === 'paragraph') {
-            const id = node.attrs['data-paragraph-id'];
-            const state = currentParagraphStates.get(id);
-            if (id && state && state.status === 'dirty') {
-                dirtyParagraphs.push({ id, text: node.textContent, pos });
-            }
-        }
-    });
+    const allDecorations = allSuggestions.map(s => 
+      Decoration.inline(s.startIndex, s.endIndex, {
+        class: `suggestion suggestion-${s.type}`,
+      })
+    );
+    setDecorations(DecorationSet.create(doc, allDecorations));
 
-    if (dirtyParagraphs.length === 0) {
+  }, [editor, suggestions]);
+
+  // REFACTORED: Analysis function now works with sentences
+  const analysisFn = useCallback(async () => {
+    const currentSentenceStates = sentenceStatesRef.current;
+    
+    const dirtySentences = Array.from(currentSentenceStates.values())
+      .filter(s => s.status === 'dirty');
+
+    if (dirtySentences.length === 0) {
+        setAnalysisStatus('idle');
         return;
     }
 
     setAnalysisStatus('analyzing');
-    const newStates = new Map(currentParagraphStates);
-    dirtyParagraphs.forEach(({ id }) => {
-        newStates.set(id, { ...newStates.get(id)!, status: 'analyzing' });
-    });
-    setParagraphStates(newStates);
     setAnalysisStartTime(new Date());
 
-    console.log(`[${new Date().toLocaleTimeString()}] Analysis triggered for ${dirtyParagraphs.length} dirty paragraphs:`, dirtyParagraphs.map(p => ({id: p.id, text: p.text})));
+    setSentenceStates(prev => {
+        const newStates = new Map(prev);
+        dirtySentences.forEach(s => newStates.set(`${s.blockId}-${s.sentenceIndexInBlock}`, {...s, status: 'analyzing'}));
+        return newStates;
+    });
 
     try {
-        const requestBody = {
-            tone: selectedToneRef.current,
-            chunks: dirtyParagraphs.reduce((acc, { id, text }) => {
-                acc[id] = text;
-                return acc;
-            }, {} as Record<string, string>)
-        };
+      const chunks = dirtySentences.reduce((acc, s) => {
+        acc[`${s.blockId}-${s.sentenceIndexInBlock}`] = s.text;
+        return acc;
+      }, {} as Record<string, string>);
 
-        const { data, error } = await supabase.functions.invoke('analyze-text', {
-            body: requestBody,
-        });
+      const { data, error } = await supabase.functions.invoke('analyze-text', {
+        body: { tone: selectedToneRef.current, chunks },
+      });
 
-        if (error) throw error;
+      if (error) throw error;
+      
+      if (data.results) {
+        processSentenceAnalysisResults(data.results);
+      }
+      
+      setAnalysisStatus('complete');
+      setAnalysisStartTime(null);
 
-        if (data.results) {
-            processChunkedAIAnalysisRef.current(data.results, dirtyParagraphs);
-        }
-
-        setAnalysisStatus('complete');
-        setAnalysisStartTime(null);
-        setParagraphStates(currentStates => {
-            const finalStates = new Map(currentStates);
-            dirtyParagraphs.forEach(({ id }) => {
-                const currentState = finalStates.get(id);
-                if (currentState) {
-                   finalStates.set(id, { ...currentState, status: 'clean' });
-                }
-            });
-            return finalStates;
-        });
+      setSentenceStates(prev => {
+          const newStates = new Map(prev);
+          dirtySentences.forEach(s => {
+              const current = newStates.get(`${s.blockId}-${s.sentenceIndexInBlock}`);
+              if (current && current.status === 'analyzing') {
+                  newStates.set(`${s.blockId}-${s.sentenceIndexInBlock}`, {...current, status: 'clean'});
+              }
+          });
+          return newStates;
+      });
 
     } catch (error) {
-        console.error('Error analyzing dirty paragraphs:', error);
-        setAnalysisStatus('error');
-        setAnalysisStartTime(null);
-        setParagraphStates(currentStates => {
-            const revertedStates = new Map(currentStates);
-            dirtyParagraphs.forEach(({ id }) => {
-                 const currentState = revertedStates.get(id);
-                if (currentState) {
-                  revertedStates.set(id, { ...currentState, status: 'dirty' });
-                }
-            });
-            return revertedStates;
-        });
-    }
-  }, [editor]);
+      console.error('Error analyzing sentences:', error);
+      setAnalysisStatus('error');
+      setAnalysisStartTime(null);
 
-  const debouncedAnalysis = useRef(debounce(analysisFn, 2000)).current;
+      setSentenceStates(prev => {
+          const newStates = new Map(prev);
+          dirtySentences.forEach(s => newStates.set(`${s.blockId}-${s.sentenceIndexInBlock}`, {...s, status: 'dirty'}));
+          return newStates;
+      });
+    }
+  }, [processSentenceAnalysisResults]);
+
+  // Use a shorter debounce for a more responsive feel
+  const debouncedAnalysis = useRef(debounce(analysisFn, 800)).current;
 
   useEffect(() => {
     debouncedAnalysis.callback = analysisFn;
   }, [analysisFn, debouncedAnalysis]);
   
-  const runAnalysisOnDirtyParagraphs = debouncedAnalysis;
-  // --- END REFACTORED ---
-
-  // DEBOUNCED SPELL CHECK FUNCTION
-  const debouncedSpellCheck = useCallback(debounce((text: string, doc: Node) => {
-      // Commented out since we're using AI-powered grammar suggestions
-      // if (spellCheckWorkerRef.current) {
-      //     spellCheckWorkerRef.current.postMessage({ text });
-      // }
-  }, 1000), []);
-
-
+  const runAnalysisOnDirtySentences = debouncedAnalysis;
   
-  // Initialize worker
-  useEffect(() => {
-    // Commented out spellcheck worker since we're using AI-powered grammar suggestions
-    // spellCheckWorkerRef.current = new Worker(new URL('../workers/spellcheck.worker.ts', import.meta.url), { type: 'module' });
-    
-    // spellCheckWorkerRef.current.onmessage = (event) => {
-    //     const { type, results, error } = event.data;
-    //     if (type === 'INIT_COMPLETE') {
-    //         console.log('Spell checker worker initialized successfully');
-    //     } else if (type === 'INIT_ERROR') {
-    //         console.error('Spell checker worker initialization failed:', error);
-    //     } else if (type === 'SPELL_RESULT' && editor) {
-    //         processSpellCheckResults(results, editor.state.doc);
-    //     } else if (type === 'PROCESS_ERROR') {
-    //         console.error('Spell checker processing error:', error);
-    //     }
-    // };
-    
-    // spellCheckWorkerRef.current.onerror = (error) => {
-    //     console.error('Spell checker worker error:', error);
-    // };
-    
-    return () => {
-        // spellCheckWorkerRef.current?.terminate();
-    };
-  }, [editor, processSpellCheckResults]);
-
-
-  const allSuggestions = useMemo(() => {
-    // Now we have a single source of suggestions
-    console.log('=== ALL SUGGESTIONS DEBUG ===');
-    console.log('Suggestions:', suggestions);
-    console.log('=== END ALL SUGGESTIONS DEBUG ===');
-    return suggestions;
-  }, [suggestions]);
-
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
-
-    const { startIndex, endIndex, suggestion } = suggestionToAccept;
 
     isAcceptingSuggestion.current = true;
 
     const { tr } = editor.state;
-    tr.replaceWith(startIndex, endIndex, editor.schema.text(suggestion));
+    tr.replaceWith(suggestionToAccept.startIndex, suggestionToAccept.endIndex, editor.schema.text(suggestionToAccept.suggestion));
     
-    // Get the mapping from the transaction
     const mapping = tr.mapping;
     editor.view.dispatch(tr);
 
-    // Update the positions of all other suggestions
     const updatedSuggestions = suggestions
-      .filter(s => s.chunkId !== suggestionToAccept.chunkId) // Remove the accepted one
+      .filter(s => s.chunkId !== suggestionToAccept.chunkId)
       .map(s => {
-        // mapPoint returns the new position of a point, and a boolean indicating if it was deleted
         const from = mapping.map(s.startIndex);
         const to = mapping.map(s.endIndex);
-        
-        // If the suggestion was deleted by this transaction, filter it out
-        if (from === to) {
-            return null;
-        }
-
-        return {
-          ...s,
-          startIndex: from,
-          endIndex: to,
-        };
+        if (from >= to) return null;
+        return { ...s, startIndex: from, endIndex: to };
       })
       .filter(Boolean) as AnalysisSuggestion[];
     
     setSuggestions(updatedSuggestions);
 
-    // Re-create decorations from the updated suggestions
     const newDecorations = updatedSuggestions.map(s => 
       Decoration.inline(s.startIndex, s.endIndex, {
         class: `suggestion suggestion-${s.type}`,
@@ -583,26 +408,17 @@ const Editor: React.FC = () => {
     
     setSelectedSuggestion(null);
 
-    // Reset the flag in the next event loop cycle
     requestAnimationFrame(() => {
       isAcceptingSuggestion.current = false;
     });
   };
 
-
-  // HANDLE DISMISS SUGGESTION
   const handleDismissSuggestion = (suggestionToDismiss: AnalysisSuggestion) => {
-    console.log('=== DISMISSING SUGGESTION DEBUG ===');
-    console.log('Dismissing suggestion:', suggestionToDismiss);
-    
-    // Remove the dismissed suggestion from the suggestions list
     const updatedSuggestions = suggestions.filter(s => s.chunkId !== suggestionToDismiss.chunkId);
     setSuggestions(updatedSuggestions);
     
-    // Remove the decoration for the dismissed suggestion
     if (editor) {
       const doc = editor.state.doc;
-      // Re-create decorations from the updated list
       const newDecorations = updatedSuggestions.map(s => 
         Decoration.inline(s.startIndex, s.endIndex, {
           class: `suggestion suggestion-${s.type}`,
@@ -611,31 +427,8 @@ const Editor: React.FC = () => {
       setDecorations(DecorationSet.create(doc, newDecorations));
     }
     
-    console.log('=== END DISMISSING SUGGESTION DEBUG ===');
     setSelectedSuggestion(null);
   };
-
-
-  // HANDLE NAVIGATE SUGGESTIONS
-  const handleNavigateSuggestions = (direction: 'prev' | 'next') => {
-    if (!allSuggestions.length) return;
-    const currentIndex = selectedSuggestion
-      ? allSuggestions.findIndex(s => s.startIndex === selectedSuggestion.startIndex)
-      : -1;
-    let newIndex = direction === 'prev'
-      ? (currentIndex - 1 + allSuggestions.length) % allSuggestions.length
-      : (currentIndex + 1) % allSuggestions.length;
-    setSelectedSuggestion(allSuggestions[newIndex]);
-  };
-
-
-
-  // HANDLE AI REWRITE
-  const handleAIRewrite = (action: 'paraphrase' | 'shorten' | 'expand') => {
-    console.log(`AI Rewrite triggered with action: ${action} and tone: ${selectedTone}`);
-  };
-
-
 
   // FETCH DOCUMENT
   useEffect(() => {
@@ -655,15 +448,7 @@ const Editor: React.FC = () => {
           setEditedTitle(data.title);
           if (editor.isEditable) {
             editor.commands.setContent(data.content || '', false);
-            const initialText = editor.getText();
-            if (initialText) {
-              // idk if i should do this here
-              // debouncedGrammarCheck(initialText);
-            }
-            // Focus the editor after content is loaded
-            setTimeout(() => {
-              editor.commands.focus();
-            }, 100);
+            setTimeout(() => editor.commands.focus(), 100);
           }
         }
       } catch (error) {
@@ -676,47 +461,28 @@ const Editor: React.FC = () => {
     fetchDocument();
   }, [documentId, navigate, user, editor]);
 
-
-  // FOCUS EDITOR WHEN IT'S READY
-  useEffect(() => {
-    if (editor && !loading && documentData) {
-      setTimeout(() => {
-        editor.commands.focus();
-      }, 200);
-    }
-  }, [editor, loading, documentData]);
-
   // ANALYSIS TIMER
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    
+    let interval: NodeJS.Timeout | undefined;
     if (analysisStatus === 'analyzing' && analysisStartTime) {
       interval = setInterval(() => {
-        const now = new Date();
-        const duration = Math.floor((now.getTime() - analysisStartTime.getTime()) / 1000);
+        const duration = Math.floor((new Date().getTime() - analysisStartTime.getTime()) / 1000);
         setAnalysisDuration(duration);
       }, 1000);
     } else {
       setAnalysisDuration(0);
     }
-
-    return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
-    };
+    return () => clearInterval(interval);
   }, [analysisStatus, analysisStartTime]);
 
-
-  // UPDATE TITLE
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
     try {
-      const { error } = await supabase
+      await supabase
         .from('documents')
         .update({ title: editedTitle.trim(), updated_at: new Date().toISOString() })
-        .eq('id', documentId);
-      if (error) throw error;
+        .eq('id', documentId)
+        .throwOnError();
       setDocumentData(prev => prev ? { ...prev, title: editedTitle.trim() } : null);
       setIsEditingTitle(false);
     } catch (error) {
@@ -754,7 +520,6 @@ const Editor: React.FC = () => {
                 </div>
               </div>
             </div>
-
             
             {editor && (
               <EditorToolbar
@@ -762,39 +527,29 @@ const Editor: React.FC = () => {
                 analysisStatus={analysisStatus}
                 selectedTone={selectedTone}
                 onToneChange={setSelectedTone}
-                onAIRewrite={(action) => handleAIRewrite(action!)}
+                onAIRewrite={(action) => console.log(`AI Rewrite: ${action}`)}
                 saveStatus={saveStatus}
                 lastSaveTime={lastSaveTime}
                 analysisDuration={analysisDuration}
               />
             )}
             
-
             <div className="flex-1 p-6 overflow-y-auto" ref={editorRef}>
               <div 
                 className="max-w-4xl mx-auto bg-white p-8 shadow-lg rounded-lg min-h-full cursor-text"
-                onClick={() => {
-                  if (editor) {
-                    editor.commands.focus();
-                  }
-                }}
+                onClick={() => editor?.commands.focus()}
                 tabIndex={-1}
                 role="textbox"
                 aria-label="Document editor"
               >
-                {editor && (
-                  <EditorContent 
-                    editor={editor} 
-                    key={editor.isEditable ? 'editable' : 'not-editable'}
-                  />
-                )}
+                {editor && <EditorContent editor={editor} />}
               </div>
             </div>
           </div>
         </Panel>
         
         <SuggestionsSidebar
-          suggestions={allSuggestions} // Pass the combined list
+          suggestions={suggestions}
           selectedSuggestion={selectedSuggestion}
           onAccept={handleAcceptSuggestion}
           onDismiss={handleDismissSuggestion}
@@ -803,9 +558,8 @@ const Editor: React.FC = () => {
           isVisible={sidebarVisible}
           onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
           documentStats={documentStats}
-    />
+        />
       </PanelGroup>
-
     </div>
   );
 };
