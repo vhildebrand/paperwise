@@ -323,7 +323,7 @@ const Editor: React.FC = () => {
     } catch (error) {
       // ... (error handling)
     }
-  }, 2500), [selectedTone, processAIAnalysis]);
+  }, 1000), [selectedTone, processAIAnalysis]);
 
   
 
@@ -578,8 +578,8 @@ const Editor: React.FC = () => {
             editor.commands.setContent(data.content || '', false);
             const initialText = editor.getText();
             if (initialText) {
-              //debouncedAnalysis(initialText);
-              // debouncedSpellCheck(initialText, editor.state.doc); // Commented out since we're using AI-powered suggestions
+              // idk if i should do this here
+              // debouncedGrammarCheck(initialText);
             }
             // Focus the editor after content is loaded
             setTimeout(() => {
