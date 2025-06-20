@@ -161,6 +161,7 @@ const Editor: React.FC = () => {
       });
       
       if(hasDirtyParagraphs) {
+        console.log(`[${new Date().toLocaleTimeString()}] Found ${newStates.size - paragraphStates.size} new/changed paragraphs. Queueing analysis.`);
         setParagraphStates(newStates);
         runAnalysisOnDirtyParagraphs();
       }
@@ -268,6 +269,8 @@ const Editor: React.FC = () => {
 
   const processChunkedAIAnalysis = useCallback((results: Record<string, any[]>, paragraphs: {id: string, pos: number}[]) => {
     if (!editor) return;
+
+    console.log(`[${new Date().toLocaleTimeString()}] Received AI suggestions:`, results);
 
     const newSuggestions: AnalysisSuggestion[] = [];
     const newDecorations: Decoration[] = [];
@@ -390,7 +393,7 @@ const Editor: React.FC = () => {
     });
     setParagraphStates(newStates);
 
-    console.log('Analyzing dirty paragraphs:', dirtyParagraphs);
+    console.log(`[${new Date().toLocaleTimeString()}] Analysis triggered for ${dirtyParagraphs.length} dirty paragraphs:`, dirtyParagraphs.map(p => ({id: p.id, text: p.text})));
     
     try {
         const requestBody = {
