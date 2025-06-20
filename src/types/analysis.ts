@@ -37,6 +37,7 @@ export interface DocumentStats {
   words: number;
   characters: number;
   readingTime: number;
+  fleschKincaid: number; // Flesch-Kincaid Grade Level
 }
 
 /**

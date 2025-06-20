@@ -17,6 +17,7 @@ import History from '@tiptap/extension-history';
 import { MathExtension } from '@aarkue/tiptap-math-extension';
 import 'katex/dist/katex.min.css';
 import { Panel, PanelGroup } from 'react-resizable-panels';
+import { calculateFleschKincaid } from '../lib/readability';
 
 import { IconSaveStatus, IconArrowLeft } from '../assets/Icons';
 import EditorToolbar from '../components/EditorToolbar';
@@ -78,7 +79,7 @@ const Editor: React.FC = () => {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [selectedTone, setSelectedTone] = useState('formal');
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
-  const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0 });
+  const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0, fleschKincaid: 0 });
   const [decorations, setDecorations] = useState(DecorationSet.empty);
   const [paragraphStates, setParagraphStates] = useState<Map<string, ParagraphState>>(new Map());
 
@@ -138,7 +139,8 @@ const Editor: React.FC = () => {
       const words = text.split(/\s+/).filter(Boolean).length;
       const characters = text.length;
       const readingTime = Math.ceil(words / 200);
-      setDocumentStats({ words, characters, readingTime });
+      const fleschKincaid = calculateFleschKincaid(text);
+      setDocumentStats({ words, characters, readingTime, fleschKincaid });
       debouncedSave(html);
 
       if (isAcceptingSuggestion.current) {
@@ -724,13 +726,6 @@ const Editor: React.FC = () => {
                     <h1 onClick={() => setIsEditingTitle(true)} className="text-2xl font-bold cursor-pointer">{documentData.title}</h1>
                   )}
                 </div>
-                <div className="flex items-center space-x-4">
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-gray-500">{saveStatus}</span>
-                    <IconSaveStatus status={saveStatus} />
-                  </div>
-                  {lastSaveTime && <span className="text-xs text-gray-400">Last saved: {lastSaveTime.toLocaleTimeString()}</span>}
-                </div>
               </div>
             </div>
 
@@ -742,6 +737,9 @@ const Editor: React.FC = () => {
                 selectedTone={selectedTone}
                 onToneChange={setSelectedTone}
                 onAIRewrite={(action) => handleAIRewrite(action!)}
+                saveStatus={saveStatus}
+                lastSaveTime={lastSaveTime}
+                documentStats={documentStats}
               />
             )}
             
@@ -778,7 +776,6 @@ const Editor: React.FC = () => {
           analysisStatus={analysisStatus}
           isVisible={sidebarVisible}
           onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
-          documentStats={documentStats}
     />
       </PanelGroup>
 

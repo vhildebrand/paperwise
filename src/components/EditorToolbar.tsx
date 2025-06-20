@@ -8,6 +8,7 @@ import {
   IconH1, IconH2, IconBlockquote, IconCode, IconSaveStatus,
   IconStrikethrough, IconTable, IconLatex, IconUndo, IconRedo
 } from '../assets/Icons';
+import { getReadabilityLevel } from '../lib/readability';
 
 interface Props {
   editor: Editor | null;
@@ -16,6 +17,9 @@ interface Props {
   onToneChange: (tone: string) => void;
   onAIRewrite: (action?: 'paraphrase' | 'shorten' | 'expand') => void;
   onTestSuggestions?: () => void;
+  saveStatus: 'saved' | 'saving' | 'error';
+  lastSaveTime: Date | null;
+  documentStats: { words: number; characters: number; readingTime: number; fleschKincaid: number };
 }
 
 const ToolbarButton = ({ onClick, disabled, title, isActive, children, className = "" }: any) => (
@@ -148,7 +152,10 @@ const EditorToolbar: React.FC<Props> = ({
   selectedTone, 
   onToneChange, 
   onAIRewrite,
-  onTestSuggestions
+  onTestSuggestions,
+  saveStatus,
+  lastSaveTime,
+  documentStats
 }) => {
   if (!editor) {
     return null;
@@ -299,8 +306,36 @@ const EditorToolbar: React.FC<Props> = ({
           )}
         </div>
 
-        {/* Right side - AI tools and status */}
+        {/* Right side - AI tools, status, and stats */}
         <div className="flex items-center space-x-3">
+          {/* Document Stats */}
+          <div className="hidden sm:flex items-center space-x-4 text-sm text-gray-600">
+            <span>Words: {documentStats.words}</span>
+            <span>Chars: {documentStats.characters}</span>
+            <span>Time: {documentStats.readingTime}m</span>
+            <span 
+              className="font-medium cursor-help" 
+              title={`Flesch-Kincaid Grade Level: ${documentStats.fleschKincaid.toFixed(1)} - ${getReadabilityLevel(documentStats.fleschKincaid).level} (${getReadabilityLevel(documentStats.fleschKincaid).description})`}
+            >
+              FK: {documentStats.fleschKincaid.toFixed(1)}
+            </span>
+          </div>
+
+          {/* Save and Analysis Status */}
+          <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-500">{saveStatus}</span>
+              <IconSaveStatus status={saveStatus} />
+            </div>
+            {analysisStatus === 'analyzing' && (
+              <div className="flex items-center space-x-1">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <span className="text-sm text-blue-600">Analyzing</span>
+              </div>
+            )}
+            {lastSaveTime && <span className="text-xs text-gray-400">Last saved: {lastSaveTime.toLocaleTimeString()}</span>}
+          </div>
+
           {/* Tone Selector */}
           <div className="hidden sm:block">
             <ToneSelector selectedTone={selectedTone} onToneChange={onToneChange} />
@@ -308,15 +343,6 @@ const EditorToolbar: React.FC<Props> = ({
 
           {/* AI Rewrite Menu */}
           <AIRewriteMenu onAction={handleAIRewrite} />
-
-          {/* Analysis Status */}
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-500">
-              {analysisStatus === 'analyzing' && 'Analyzing...'}
-              {analysisStatus === 'complete' && 'Analysis complete'}
-              {analysisStatus === 'error' && 'Analysis error'}
-            </span>
-          </div>
         </div>
       </div>
     </div>

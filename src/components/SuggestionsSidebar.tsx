@@ -9,7 +9,7 @@ import {
   ChevronDownIcon,
   ChevronUpIcon
 } from '@heroicons/react/24/outline';
-import type { AnalysisSuggestion, DocumentStats, AnalysisStatus } from '../types/analysis';
+import type { AnalysisSuggestion, AnalysisStatus } from '../types/analysis';
 
 interface SuggestionsSidebarProps {
   suggestions: AnalysisSuggestion[];
@@ -20,7 +20,6 @@ interface SuggestionsSidebarProps {
   analysisStatus: AnalysisStatus;
   isVisible: boolean;
   onToggleVisibility: () => void;
-  documentStats: DocumentStats;
 }
 
 type FilterType = 'all' | 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
@@ -33,8 +32,7 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
   selectedSuggestion,
   analysisStatus,
   isVisible,
-  onToggleVisibility,
-  documentStats
+  onToggleVisibility
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -101,19 +99,83 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
         <div className="h-full bg-white border-l border-gray-200 flex flex-col">
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
             <h3 className="font-semibold text-gray-900">Suggestions</h3>
-            <button
-              onClick={onToggleVisibility}
-              className="p-1 rounded hover:bg-gray-100 transition-colors"
-              title="Hide suggestions"
-            >
-              <EyeSlashIcon className="w-4 h-4 text-gray-600" />
-            </button>
-          </div>
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-2"></div>
-              <p className="text-gray-600">Analyzing...</p>
+            <div className="flex items-center space-x-2">
+              <div className="flex items-center space-x-1">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <span className="text-sm text-blue-600">Analyzing</span>
+              </div>
+              <button
+                onClick={onToggleVisibility}
+                className="p-1 rounded hover:bg-gray-100 transition-colors"
+                title="Hide suggestions"
+              >
+                <EyeSlashIcon className="w-4 h-4 text-gray-600" />
+              </button>
             </div>
+          </div>
+
+          {/* Show existing suggestions during analysis */}
+          <div className="flex-1 overflow-y-auto">
+            {suggestions.length === 0 ? (
+              <div className="p-6 text-center text-gray-500">
+                <p>No suggestions found yet.</p>
+                <p className="text-sm mt-2">Analysis in progress...</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-100">
+                {suggestions.map((suggestion, index) => (
+                  <div
+                    key={`${suggestion.startIndex}-${index}`}
+                    className={`p-4 cursor-pointer transition-colors ${
+                      selectedSuggestion?.startIndex === suggestion.startIndex
+                        ? 'bg-blue-50 border-l-4 border-blue-500'
+                        : 'hover:bg-gray-50 border-l-4 border-transparent'
+                    }`}
+                    onClick={() => onSelect(suggestion)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <span className="text-lg">{getTypeIcon(suggestion.type)}</span>
+                        <span className={`text-xs px-2 py-1 rounded-full border ${getTypeColor(suggestion.type)}`}>
+                          {suggestion.type}
+                        </span>
+                      </div>
+                      <div className="flex space-x-1">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onAccept(suggestion);
+                          }}
+                          className="p-1 rounded hover:bg-green-100 text-green-600 transition-colors"
+                          title="Accept suggestion"
+                        >
+                          <CheckIcon className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDismiss(suggestion);
+                          }}
+                          className="p-1 rounded hover:bg-red-100 text-red-600 transition-colors"
+                          title="Dismiss suggestion"
+                        >
+                          <XMarkIcon className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="mb-2">
+                      <p className="text-sm text-gray-700 mb-1">{suggestion.explanation}</p>
+                      <div className="bg-gray-50 rounded p-2 text-sm">
+                        <span className="line-through text-red-600">{suggestion.originalText}</span>
+                        <span className="mx-2 text-gray-400">→</span>
+                        <span className="text-green-700 font-medium">{suggestion.suggestion}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </Panel>
@@ -136,16 +198,6 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
               >
                 <EyeSlashIcon className="w-4 h-4 text-gray-600" />
               </button>
-            </div>
-          </div>
-
-          {/* Document Stats */}
-          <div className="p-3 border-b border-gray-200 bg-gray-50">
-            <h4 className="font-semibold text-sm mb-2">Document Stats</h4>
-            <div className="flex justify-between text-sm text-gray-600">
-              <span>Words: {documentStats.words}</span>
-              <span>Characters: {documentStats.characters}</span>
-              <span>Reading Time: {documentStats.readingTime} min</span>
             </div>
           </div>
 
