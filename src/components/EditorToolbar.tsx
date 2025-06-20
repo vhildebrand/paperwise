@@ -19,6 +19,7 @@ interface Props {
   onTestSuggestions?: () => void;
   saveStatus: 'saved' | 'saving' | 'error';
   lastSaveTime: Date | null;
+  analysisDuration: number;
 }
 
 const ToolbarButton = ({ onClick, disabled, title, isActive, children, className = "" }: any) => (
@@ -153,7 +154,8 @@ const EditorToolbar: React.FC<Props> = ({
   onAIRewrite,
   onTestSuggestions,
   saveStatus,
-  lastSaveTime
+  lastSaveTime,
+  analysisDuration
 }) => {
   if (!editor) {
     return null;
@@ -164,8 +166,8 @@ const EditorToolbar: React.FC<Props> = ({
   };
 
   return (
-    <div className="bg-white/80 backdrop-blur-lg border-b border-gray-200 px-4 sm:px-6 py-2 z-20">
-      <div className="flex items-center justify-between flex-wrap gap-2">
+    <div className="bg-white/95 backdrop-blur-lg border-b border-gray-200 px-4 sm:px-6 py-3 z-20 shadow-sm">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         {/* Left side - Formatting tools */}
         <div className="flex items-center space-x-1 flex-wrap">
         <div className="flex items-center space-x-1">
@@ -307,18 +309,23 @@ const EditorToolbar: React.FC<Props> = ({
         {/* Right side - AI tools, status, and stats */}
         <div className="flex items-center space-x-3">
           {/* Save and Analysis Status */}
-          <div className="flex items-center space-x-2">
-            <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-500">{saveStatus}</span>
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
+              <span className="text-sm text-gray-600 font-medium">{saveStatus}</span>
               <IconSaveStatus status={saveStatus} />
             </div>
             {analysisStatus === 'analyzing' && (
-              <div className="flex items-center space-x-1">
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                <span className="text-sm text-blue-600">Analyzing</span>
+              <div className="flex items-center space-x-1 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
+                <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>
+                <span className="text-xs text-blue-700 font-medium">Analyzing</span>
+                <span className="text-xs text-blue-600">({analysisDuration}s)</span>
               </div>
             )}
-            {lastSaveTime && <span className="text-xs text-gray-400">Last saved: {lastSaveTime.toLocaleTimeString()}</span>}
+            {lastSaveTime && (
+              <div className="text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded border border-gray-200">
+                Last saved: {lastSaveTime.toLocaleTimeString()}
+              </div>
+            )}
           </div>
 
           {/* Tone Selector */}

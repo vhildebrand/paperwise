@@ -82,6 +82,8 @@ const Editor: React.FC = () => {
   const [documentStats, setDocumentStats] = useState({ words: 0, characters: 0, readingTime: 0, fleschKincaid: 0 });
   const [decorations, setDecorations] = useState(DecorationSet.empty);
   const [paragraphStates, setParagraphStates] = useState<Map<string, ParagraphState>>(new Map());
+  const [analysisStartTime, setAnalysisStartTime] = useState<Date | null>(null);
+  const [analysisDuration, setAnalysisDuration] = useState(0);
 
   const editorRef = useRef<HTMLDivElement>(null);
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
@@ -426,6 +428,7 @@ const Editor: React.FC = () => {
         newStates.set(id, { ...newStates.get(id)!, status: 'analyzing' });
     });
     setParagraphStates(newStates);
+    setAnalysisStartTime(new Date());
 
     console.log(`[${new Date().toLocaleTimeString()}] Analysis triggered for ${dirtyParagraphs.length} dirty paragraphs:`, dirtyParagraphs.map(p => ({id: p.id, text: p.text})));
 
@@ -449,6 +452,7 @@ const Editor: React.FC = () => {
         }
 
         setAnalysisStatus('complete');
+        setAnalysisStartTime(null);
         setParagraphStates(currentStates => {
             const finalStates = new Map(currentStates);
             dirtyParagraphs.forEach(({ id }) => {
@@ -463,6 +467,7 @@ const Editor: React.FC = () => {
     } catch (error) {
         console.error('Error analyzing dirty paragraphs:', error);
         setAnalysisStatus('error');
+        setAnalysisStartTime(null);
         setParagraphStates(currentStates => {
             const revertedStates = new Map(currentStates);
             dirtyParagraphs.forEach(({ id }) => {
@@ -681,6 +686,27 @@ const Editor: React.FC = () => {
     }
   }, [editor, loading, documentData]);
 
+  // ANALYSIS TIMER
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    
+    if (analysisStatus === 'analyzing' && analysisStartTime) {
+      interval = setInterval(() => {
+        const now = new Date();
+        const duration = Math.floor((now.getTime() - analysisStartTime.getTime()) / 1000);
+        setAnalysisDuration(duration);
+      }, 1000);
+    } else {
+      setAnalysisDuration(0);
+    }
+
+    return () => {
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
+  }, [analysisStatus, analysisStartTime]);
+
 
   // UPDATE TITLE
   const updateTitle = async () => {
@@ -739,6 +765,7 @@ const Editor: React.FC = () => {
                 onAIRewrite={(action) => handleAIRewrite(action!)}
                 saveStatus={saveStatus}
                 lastSaveTime={lastSaveTime}
+                analysisDuration={analysisDuration}
               />
             )}
             
