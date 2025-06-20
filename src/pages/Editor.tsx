@@ -739,7 +739,6 @@ const Editor: React.FC = () => {
                 onAIRewrite={(action) => handleAIRewrite(action!)}
                 saveStatus={saveStatus}
                 lastSaveTime={lastSaveTime}
-                documentStats={documentStats}
               />
             )}
             
@@ -776,6 +775,7 @@ const Editor: React.FC = () => {
           analysisStatus={analysisStatus}
           isVisible={sidebarVisible}
           onToggleVisibility={() => setSidebarVisible(!sidebarVisible)}
+          documentStats={documentStats}
     />
       </PanelGroup>
 

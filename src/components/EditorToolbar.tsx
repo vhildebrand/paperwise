@@ -19,7 +19,6 @@ interface Props {
   onTestSuggestions?: () => void;
   saveStatus: 'saved' | 'saving' | 'error';
   lastSaveTime: Date | null;
-  documentStats: { words: number; characters: number; readingTime: number; fleschKincaid: number };
 }
 
 const ToolbarButton = ({ onClick, disabled, title, isActive, children, className = "" }: any) => (
@@ -154,8 +153,7 @@ const EditorToolbar: React.FC<Props> = ({
   onAIRewrite,
   onTestSuggestions,
   saveStatus,
-  lastSaveTime,
-  documentStats
+  lastSaveTime
 }) => {
   if (!editor) {
     return null;
@@ -308,19 +306,6 @@ const EditorToolbar: React.FC<Props> = ({
 
         {/* Right side - AI tools, status, and stats */}
         <div className="flex items-center space-x-3">
-          {/* Document Stats */}
-          <div className="hidden sm:flex items-center space-x-4 text-sm text-gray-600">
-            <span>Words: {documentStats.words}</span>
-            <span>Chars: {documentStats.characters}</span>
-            <span>Time: {documentStats.readingTime}m</span>
-            <span 
-              className="font-medium cursor-help" 
-              title={`Flesch-Kincaid Grade Level: ${documentStats.fleschKincaid.toFixed(1)} - ${getReadabilityLevel(documentStats.fleschKincaid).level} (${getReadabilityLevel(documentStats.fleschKincaid).description})`}
-            >
-              FK: {documentStats.fleschKincaid.toFixed(1)}
-            </span>
-          </div>
-
           {/* Save and Analysis Status */}
           <div className="flex items-center space-x-2">
             <div className="flex items-center space-x-2">

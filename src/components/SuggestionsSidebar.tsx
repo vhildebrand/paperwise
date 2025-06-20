@@ -9,7 +9,8 @@ import {
   ChevronDownIcon,
   ChevronUpIcon
 } from '@heroicons/react/24/outline';
-import type { AnalysisSuggestion, AnalysisStatus } from '../types/analysis';
+import type { AnalysisSuggestion, AnalysisStatus, DocumentStats } from '../types/analysis';
+import { getReadabilityLevel } from '../lib/readability';
 
 interface SuggestionsSidebarProps {
   suggestions: AnalysisSuggestion[];
@@ -20,6 +21,7 @@ interface SuggestionsSidebarProps {
   analysisStatus: AnalysisStatus;
   isVisible: boolean;
   onToggleVisibility: () => void;
+  documentStats: DocumentStats;
 }
 
 type FilterType = 'all' | 'spelling' | 'grammar' | 'style' | 'clarity' | 'tone';
@@ -32,7 +34,8 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
   selectedSuggestion,
   analysisStatus,
   isVisible,
-  onToggleVisibility
+  onToggleVisibility,
+  documentStats
 }) => {
   const [activeFilter, setActiveFilter] = useState<FilterType>('all');
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -111,6 +114,39 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
               >
                 <EyeSlashIcon className="w-4 h-4 text-gray-600" />
               </button>
+            </div>
+          </div>
+
+          {/* Document Stats - Compact UI */}
+          <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <h4 className="font-medium text-xs text-gray-700 mb-2 flex items-center">
+              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5"></span>
+              Document Statistics
+            </h4>
+            <div className="grid grid-cols-4 gap-2">
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">Words</div>
+                <div className="text-sm font-semibold text-gray-800">{documentStats.words.toLocaleString()}</div>
+              </div>
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">Chars</div>
+                <div className="text-sm font-semibold text-gray-800">{documentStats.characters.toLocaleString()}</div>
+              </div>
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">Time</div>
+                <div className="text-sm font-semibold text-gray-800">{documentStats.readingTime}m</div>
+              </div>
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">FK</div>
+                <div 
+                  className="text-sm font-semibold cursor-help"
+                  title={`Flesch-Kincaid Grade Level: ${documentStats.fleschKincaid.toFixed(1)} - ${getReadabilityLevel(documentStats.fleschKincaid).level} (${getReadabilityLevel(documentStats.fleschKincaid).description})`}
+                >
+                  <span className={getReadabilityLevel(documentStats.fleschKincaid).color}>
+                    {documentStats.fleschKincaid.toFixed(1)}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -198,6 +234,39 @@ const SuggestionsSidebar: React.FC<SuggestionsSidebarProps> = ({
               >
                 <EyeSlashIcon className="w-4 h-4 text-gray-600" />
               </button>
+            </div>
+          </div>
+
+          {/* Document Stats - Compact UI */}
+          <div className="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50">
+            <h4 className="font-medium text-xs text-gray-700 mb-2 flex items-center">
+              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-1.5"></span>
+              Document Statistics
+            </h4>
+            <div className="grid grid-cols-4 gap-2">
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">Words</div>
+                <div className="text-sm font-semibold text-gray-800">{documentStats.words.toLocaleString()}</div>
+              </div>
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">Chars</div>
+                <div className="text-sm font-semibold text-gray-800">{documentStats.characters.toLocaleString()}</div>
+              </div>
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">Time</div>
+                <div className="text-sm font-semibold text-gray-800">{documentStats.readingTime}m</div>
+              </div>
+              <div className="bg-white rounded-md p-2 shadow-sm border border-gray-100">
+                <div className="text-xs text-gray-500 mb-0.5">FK</div>
+                <div 
+                  className="text-sm font-semibold cursor-help"
+                  title={`Flesch-Kincaid Grade Level: ${documentStats.fleschKincaid.toFixed(1)} - ${getReadabilityLevel(documentStats.fleschKincaid).level} (${getReadabilityLevel(documentStats.fleschKincaid).description})`}
+                >
+                  <span className={getReadabilityLevel(documentStats.fleschKincaid).color}>
+                    {documentStats.fleschKincaid.toFixed(1)}
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
