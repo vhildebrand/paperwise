@@ -1,3 +1,4 @@
+// supabase/functions/analyze-text/index.ts
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from '@supabase/supabase-js'
 import { OpenAI } from 'https://deno.land/x/openai@v4.52.0/mod.ts'
@@ -66,10 +67,32 @@ const openai = new OpenAI({
   apiKey: Deno.env.get('OPENAI_API_KEY'),
 })
 
-const newSystemPrompt = `
-You are an expert writing assistant. You will be given a JSON object containing text chunks to analyze, where each key is a unique sentence identifier.
-- The user will provide a JSON object with a "tone" and a "chunks" object.
-- The "chunks" object contains key-value pairs, where the key is a unique ID (e.g., "blockId-sentenceIndex") and the value is the sentence text.
+// --- SYSTEM PROMPTS ---
+
+function getAnalysisSystemPrompt({ formality, audience, domain, intent }) {
+    let guidelines = "You are an expert writing assistant.";
+
+    if (formality) {
+        guidelines += ` Your tone should be ${formality}.`;
+        if (formality === "zoomer brainrot") {
+            guidelines += " This means using modern slang, memes, and a very casual, sometimes chaotic tone. Think gen-z internet humor.";
+        } else if (formality === "18th century impoverished russian poet") {
+            guidelines += " This means writing with a tone of bleak, existential dread, longing, and melodrama. Use flowery, archaic language.";
+        }
+    }
+    if (audience) {
+        guidelines += ` The target audience is ${audience}.`;
+    }
+    if (domain) {
+        guidelines += ` The writing domain is ${domain}.`;
+    }
+    if (intent) {
+        guidelines += ` The primary intent of the text is to ${intent}.`;
+    }
+
+    return `
+${guidelines}
+- You will be given a JSON object containing text chunks to analyze, where each key is a unique sentence identifier.
 - You MUST respond with a single JSON object where keys are the SAME sentence identifiers from the request.
 - The value for each key must be an array of suggestion objects for that sentence.
 - Each suggestion object must have the structure: { "type": "spelling" | "grammar" | "style" | "clarity" | "tone", "originalText": "the exact text to be replaced", "suggestion": "the new text", "explanation": "a brief explanation" }.
@@ -78,7 +101,6 @@ You are an expert writing assistant. You will be given a JSON object containing 
 
 Example Request:
 {
-  "tone": "formal",
   "chunks": {
     "xyz789-0": "I can has cheezburger.",
     "xyz789-1": "its so gud."
@@ -96,28 +118,89 @@ Example JSON Response:
   ]
 }
 `;
+}
+
+
+const rewriteSystemPrompt = (action: string) => `You are an AI writing assistant. The user has selected a piece of text and wants to ${action} it. Rewrite the following text accordingly. Respond only with the rewritten text, without any additional commentary or quotation marks.`;
+const latexSystemPrompt = `You are a helpful assistant that specializes in generating LaTeX code for mathematical equations. The user will provide a description of a math equation. Respond ONLY with the raw LaTeX code for that equation. Do not include the '$$' delimiters or any other explaining text.`;
+
+// --- HANDLERS ---
+
+async function handleAnalysis(reqBody) {
+  const { chunks, formality, audience, domain, intent } = reqBody;
+  if (!chunks || Object.keys(chunks).length === 0) {
+    throw new Error("No text chunks provided for analysis.");
+  }
+
+  const systemPrompt = getAnalysisSystemPrompt({ formality, audience, domain, intent });
+  const userContent = `Text chunks to correct:\n${JSON.stringify(chunks, null, 2)}`;
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userContent },
+    ],
+    temperature: 0.3,
+    response_format: { type: "json_object" },
+  });
+
+  const rawResponse = completion.choices[0].message.content;
+  return { results: JSON.parse(rawResponse) };
+}
+
+async function handleRewrite(reqBody) {
+  const { text, action } = reqBody;
+  if (!text || !action) {
+    throw new Error("Missing 'text' or 'action' for rewrite task.");
+  }
+  
+  const systemPrompt = rewriteSystemPrompt(action);
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: text },
+    ],
+    temperature: 0.7,
+  });
+
+  return { rewrittenText: completion.choices[0].message.content };
+}
+
+async function handleLatex(reqBody) {
+  const { prompt } = reqBody;
+  if (!prompt) {
+    throw new Error("Missing 'prompt' for LaTeX generation task.");
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: latexSystemPrompt },
+      { role: 'user', content: prompt },
+    ],
+    temperature: 0.2,
+  });
+  
+  return { latex: completion.choices[0].message.content.trim() };
+}
+
 
 serve(async (req) => {
   const origin = req.headers.get('origin');
   const corsHeaders = getCorsHeaders(origin);
 
-  // Handle preflight requests
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
-
-  // Only allow POST requests
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       status: 405,
     });
   }
-
-
-  // TODO: Check rate limiting
-
-
 
   // Authenticate the request
   const auth = await authenticateRequest(req);
@@ -128,49 +211,27 @@ serve(async (req) => {
     });
   }
 
-
-
-  // TODO: Validate input
-
-
   try {
-    const { tone, chunks } = await req.json()
+    const body = await req.json();
+    const { task } = body;
+    let data;
 
-    if (!chunks || Object.keys(chunks).length === 0) {
-      throw new Error("No text chunks provided.");
+    switch (task) {
+      case 'analyze':
+        data = await handleAnalysis(body);
+        break;
+      case 'rewrite':
+        data = await handleRewrite(body);
+        break;
+      case 'latex':
+        data = await handleLatex(body);
+        break;
+      default:
+        throw new Error(`Invalid task: ${task}`);
     }
-
-    console.log('=== EDGE FUNCTION DEBUG ===');
-    console.log('Input chunks:', chunks);
-    console.log('Tone:', tone);
-
-    const userContent = `Tone preference: ${tone}\n\nText chunks to correct:\n${JSON.stringify(chunks, null, 2)}`;
-
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: newSystemPrompt },
-        { role: 'user', content: userContent },
-      ],
-      temperature: 0.3,
-      response_format: { type: "json_object" },
-    })
-
-    const rawResponse = completion.choices[0].message.content;
-    console.log('LLM raw response:', rawResponse);
-    
-    let results = {};
-    try {
-        results = JSON.parse(rawResponse);
-    } catch (e) {
-        console.error("Failed to parse JSON from LLM response:", e);
-        throw new Error("Invalid JSON response from analysis engine.");
-    }
-    
-    console.log('Parsed results:', results);
     
     return new Response(
-      JSON.stringify({ results }), // Return a structured object
+      JSON.stringify(data),
       {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         status: 200,
@@ -180,10 +241,7 @@ serve(async (req) => {
     return new Response(
         JSON.stringify({ error: error.message }), 
         { 
-            headers: { 
-                'Access-Control-Allow-Origin': '*',
-                'Content-Type': 'application/json'
-            }, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' }, 
             status: 500 
         }
     );
