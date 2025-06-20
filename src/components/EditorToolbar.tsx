@@ -13,7 +13,6 @@ interface AnalysisSettings {
     formality: string;
     audience: string;
     domain: string;
-    intent: string;
 }
 
 interface Props {
@@ -50,10 +49,9 @@ const AnalysisSettingsMenu = ({ settings, onChange }: {
     onChange: (settings: AnalysisSettings) => void; 
 }) => {
     const options: Record<keyof AnalysisSettings, string[]> = {
-        formality: ['zoomer brainrot', 'informal', 'neutral', 'formal'],
+        formality: ['informal', 'neutral', 'formal'],
         audience: ['general', 'knowledgeable', 'expert'],
         domain: ['Academic', 'Business', 'General', 'Email', 'Casual', 'Creative'],
-        intent: ['inform', 'describe', 'convince'],
     };
 
     const handleSettingChange = (key: keyof AnalysisSettings, value: string) => {

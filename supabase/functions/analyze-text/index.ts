@@ -69,25 +69,17 @@ const openai = new OpenAI({
 
 // --- SYSTEM PROMPTS ---
 
-function getAnalysisSystemPrompt({ formality, audience, domain, intent }) {
+function getAnalysisSystemPrompt({ formality, audience, domain }) {
     let guidelines = "You are an expert writing assistant.";
 
     if (formality) {
         guidelines += ` Your tone should be ${formality}.`;
-        if (formality === "zoomer brainrot") {
-            guidelines += " This means using modern slang, memes, and a very casual, sometimes chaotic tone. Think gen-z internet humor.";
-        } else if (formality === "18th century impoverished russian poet") {
-            guidelines += " This means writing with a tone of bleak, existential dread, longing, and melodrama. Use flowery, archaic language.";
-        }
     }
     if (audience) {
         guidelines += ` The target audience is ${audience}.`;
     }
     if (domain) {
         guidelines += ` The writing domain is ${domain}.`;
-    }
-    if (intent) {
-        guidelines += ` The primary intent of the text is to ${intent}.`;
     }
 
     return `
@@ -127,12 +119,12 @@ const latexSystemPrompt = `You are a helpful assistant that specializes in gener
 // --- HANDLERS ---
 
 async function handleAnalysis(reqBody) {
-  const { chunks, formality, audience, domain, intent } = reqBody;
+  const { chunks, formality, audience, domain } = reqBody;
   if (!chunks || Object.keys(chunks).length === 0) {
     throw new Error("No text chunks provided for analysis.");
   }
 
-  const systemPrompt = getAnalysisSystemPrompt({ formality, audience, domain, intent });
+  const systemPrompt = getAnalysisSystemPrompt({ formality, audience, domain });
   const userContent = `Text chunks to correct:\n${JSON.stringify(chunks, null, 2)}`;
 
   const completion = await openai.chat.completions.create({

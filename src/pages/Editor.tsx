@@ -50,7 +50,6 @@ interface AnalysisSettings {
     formality: string;
     audience: string;
     domain: string;
-    intent: string;
 }
 
 function debounce<T extends (...args: any[]) => any>(
@@ -101,7 +100,6 @@ const Editor: React.FC = () => {
     formality: 'neutral',
     audience: 'general',
     domain: 'General',
-    intent: 'inform',
   });
   const [isLatexModalOpen, setIsLatexModalOpen] = useState(false);
   const [aiRewriteStatus, setAiRewriteStatus] = useState<'idle' | 'rewriting'>('idle');
