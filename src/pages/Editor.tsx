@@ -102,6 +102,7 @@ const Editor: React.FC = () => {
     domain: 'General',
   });
   const [isLatexModalOpen, setIsLatexModalOpen] = useState(false);
+  const [latexModalPosition, setLatexModalPosition] = useState<{ top: number; left: number } | null>(null);
   const [aiRewriteStatus, setAiRewriteStatus] = useState<'idle' | 'rewriting'>('idle');
   
   const [lastSaveTime, setLastSaveTime] = useState<Date | null>(null);
@@ -482,9 +483,42 @@ const Editor: React.FC = () => {
              // TODO: Add user-facing error notification
         } finally {
             setIsLatexModalOpen(false);
+            setLatexModalPosition(null);
         }
     };
 
+    // --- NEW HANDLER TO OPEN LATEX MODAL WITH CURSOR POSITION ---
+    const handleOpenLatexModal = useCallback(() => {
+        if (!editor) return;
+        
+        const { from } = editor.state.selection;
+        const coords = editor.view.coordsAtPos(from);
+        
+        if (coords) {
+            // Get viewport dimensions
+            const viewportHeight = window.innerHeight;
+            const viewportWidth = window.innerWidth;
+            
+            // Calculate position with offset
+            let top = coords.top + 20;
+            let left = coords.left;
+            
+            // Ensure modal doesn't go off-screen
+            if (top + 200 > viewportHeight) { // 200px is approximate modal height
+                top = coords.top - 220; // Position above cursor
+            }
+            
+            if (left + 320 > viewportWidth) { // 320px is modal width
+                left = viewportWidth - 340; // Position from right edge
+            }
+            
+            setLatexModalPosition({
+                top: Math.max(20, top), // Ensure minimum top margin
+                left: Math.max(20, left) // Ensure minimum left margin
+            });
+            setIsLatexModalOpen(true);
+        }
+    }, [editor]);
 
   const handleAcceptSuggestion = (suggestionToAccept: AnalysisSuggestion) => {
     if (!editor) return;
@@ -656,6 +690,22 @@ const Editor: React.FC = () => {
     return () => clearInterval(interval);
   }, [analysisStatus, analysisStartTime]);
 
+  // KEYBOARD SHORTCUTS
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Ctrl+M or Cmd+M for LaTeX modal
+      if ((event.ctrlKey || event.metaKey) && event.key === 'm') {
+        event.preventDefault();
+        if (!isLatexModalOpen) {
+          handleOpenLatexModal();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isLatexModalOpen, handleOpenLatexModal]);
+
   const updateTitle = async () => {
     if (!documentId || !editedTitle.trim()) return;
     try {
@@ -680,6 +730,7 @@ const Editor: React.FC = () => {
             isOpen={isLatexModalOpen}
             onClose={() => setIsLatexModalOpen(false)}
             onSubmit={handleGenerateLatex}
+            position={latexModalPosition}
         />
       <PanelGroup direction="horizontal" className="flex-1">
         <Panel defaultSize={75} minSize={50}>
@@ -714,7 +765,7 @@ const Editor: React.FC = () => {
                 analysisSettings={analysisSettings}
                 onAnalysisSettingsChange={setAnalysisSettings}
                 onAIRewrite={handleAIRewrite}
-                onGenerateLatex={() => setIsLatexModalOpen(true)}
+                onGenerateLatex={handleOpenLatexModal}
                 aiRewriteStatus={aiRewriteStatus}
                 saveStatus={saveStatus}
                 lastSaveTime={lastSaveTime}
