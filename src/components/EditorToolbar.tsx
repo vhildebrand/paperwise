@@ -290,30 +290,12 @@ const EditorToolbar: React.FC<Props> = ({
                 <IconLatex />
             </ToolbarButton>
           </div>
-
-          {/* Test button for debugging */}
-          {onTestSuggestions && (
-            <>
-              <Divider />
-              <ToolbarButton
-                onClick={onTestSuggestions}
-                title="Test Suggestions (Debug)"
-                className="bg-yellow-100 hover:bg-yellow-200 text-yellow-800"
-              >
-                🧪 Test
-              </ToolbarButton>
-            </>
-          )}
         </div>
 
         {/* Right side - AI tools, status, and stats */}
         <div className="flex items-center space-x-3">
           {/* Save and Analysis Status */}
           <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
-              <span className="text-sm text-gray-600 font-medium">{saveStatus}</span>
-              <IconSaveStatus status={saveStatus} />
-            </div>
             {analysisStatus === 'analyzing' && (
               <div className="flex items-center space-x-1 bg-blue-50 px-3 py-1.5 rounded-lg border border-blue-200">
                 <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-blue-600"></div>

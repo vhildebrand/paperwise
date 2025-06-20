@@ -402,7 +402,7 @@ const Editor: React.FC = () => {
   }, [processSentenceAnalysisResults]);
 
   // Use a shorter debounce for a more responsive feel
-  const debouncedAnalysis = useRef(debounce(analysisFn, 800)).current;
+  const debouncedAnalysis = useRef(debounce(analysisFn, 1200)).current;
 
   useEffect(() => {
     debouncedAnalysis.callback = analysisFn;
