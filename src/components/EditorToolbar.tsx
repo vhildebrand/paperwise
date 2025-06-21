@@ -6,7 +6,7 @@ import { ChevronDownIcon, SparklesIcon, Cog6ToothIcon } from '@heroicons/react/2
 import {
   IconBold, IconItalic, IconUnderline, IconList, IconListOrdered,
   IconH1, IconH2, IconBlockquote, IconCode, IconSaveStatus,
-  IconStrikethrough, IconTable, IconLatex, IconUndo, IconRedo
+  IconStrikethrough, IconTable, IconLatex, IconUndo, IconRedo, IconCitation
 } from '../assets/Icons';
 
 interface AnalysisSettings {
@@ -26,6 +26,7 @@ interface Props {
   saveStatus: 'saved' | 'saving' | 'error';
   lastSaveTime: Date | null;
   analysisDuration: number;
+  onGenerateCitation: () => void;
 }
 
 const ToolbarButton = ({ onClick, disabled, title, isActive, children, className = "" }: any) => (
@@ -245,7 +246,8 @@ const EditorToolbar: React.FC<Props> = ({
   aiRewriteStatus,
   saveStatus,
   lastSaveTime,
-  analysisDuration
+  analysisDuration,
+  onGenerateCitation
 }) => {
   if (!editor) {
     return null;
@@ -299,6 +301,7 @@ const EditorToolbar: React.FC<Props> = ({
             <ToolbarButton onClick={() => editor.chain().focus().toggleCodeBlock().run()} isActive={editor.isActive('codeBlock')} title="Code Block"><IconCode /></ToolbarButton>
             <ToolbarButton onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()} title="Insert Table"><IconTable /></ToolbarButton>
             <ToolbarButton onClick={onGenerateLatex} title="Generate LaTeX with AI (Ctrl+M)"><IconLatex /></ToolbarButton>
+            <ToolbarButton onClick={onGenerateCitation} title="Generate Citation with AI"><IconCitation /></ToolbarButton>
           </div>
         </div>
 

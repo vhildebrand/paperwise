@@ -33,6 +33,9 @@ import { nanoid } from 'nanoid';
 
 import { CustomParagraph, BlockIdGenerator } from '../lib/tiptap-extensions';
 
+import CitationModal from '../components/CitationModal';
+import Cite from 'citation-js';
+
 type Document = Database['public']['Tables']['documents']['Row'];
 
 // Define the new state structure for sentences
@@ -94,6 +97,8 @@ const Editor: React.FC = () => {
   const [selectedSuggestion, setSelectedSuggestion] = useState<AnalysisSuggestion | null>(null);
   const [popupPosition, setPopupPosition] = useState<{ top: number, left: number } | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [isCitationModalOpen, setIsCitationModalOpen] = useState(false);
+  const [citationModalPosition, setCitationModalPosition] = useState<{ top: number; left: number } | null>(null);
   
   // --- NEW STATE FOR ADVANCED TONE/STYLE ---
   const [analysisSettings, setAnalysisSettings] = useState<AnalysisSettings>({
@@ -644,6 +649,97 @@ const Editor: React.FC = () => {
     });
   };
 
+   // --- NEW HANDLER TO OPEN CITATION MODAL ---
+   const handleOpenCitationModal = useCallback(() => {
+    if (!editor) return;
+    const { from } = editor.state.selection;
+    const coords = editor.view.coordsAtPos(from);
+
+    if (coords) {
+      setCitationModalPosition({
+        top: Math.max(20, coords.top + 20),
+        left: Math.max(20, coords.left)
+      });
+      setIsCitationModalOpen(true);
+    }
+  }, [editor]);
+
+  // --- NEW HANDLER TO GENERATE CITATION ---
+  const handleGenerateCitation = async (query: string) => {
+    if (!editor || !query) return;
+
+    try {
+      const { data, error } = await supabase.functions.invoke('analyze-text', {
+        body: {
+          task: 'citation',
+          query: query,
+        },
+      });
+
+      if (error) throw error;
+
+      if (data.bibtex) {
+        // Use citation-js to parse BibTeX and format it
+        const citation = new Cite(data.bibtex);
+
+        // Format for in-text citation (e.g., "(Harari, 2015)")
+        const inText = citation.format('citation', {
+          format: 'text',
+          template: 'apa', // Or choose another style
+        });
+
+        // Format for the full reference list
+        const fullReference = citation.format('bibliography', {
+          format: 'text',
+          template: 'apa',
+          lang: 'en-US'
+        });
+
+        // Insert the in-text citation at the cursor, and add the full reference
+        // at the end of the document with a "References" heading if it doesn't exist.
+        editor.chain().focus()
+          .insertContent(inText)
+          // We can add more complex logic here later to manage a bibliography
+          .command(({ tr, state, dispatch }) => {
+            const doc = state.doc;
+            const endOfDocPos = doc.content.size;
+          
+            const lastNode = doc.lastChild;
+            let shouldInsertHeading = true;
+          
+            if (lastNode && lastNode.type.name === 'heading' && lastNode.textContent.trim() === 'References') {
+              shouldInsertHeading = false;
+            }
+            
+            if (dispatch) {
+              if (shouldInsertHeading) {
+                const heading = editor.schema.nodes.heading.create({ level: 2 }, editor.schema.text('References'));
+                tr.insert(endOfDocPos, heading);
+              }
+          
+              // Get the NEW end of the document from the transaction itself
+              const newEndOfDoc = tr.doc.content.size; 
+          
+              // Insert the reference at the correct new position
+              const referencePara = editor.schema.nodes.paragraph.create({}, editor.schema.text(`\n${fullReference}`));
+              tr.insert(newEndOfDoc, referencePara);
+              
+              dispatch(tr);
+            }
+            
+            return true;
+          })
+          .run();
+          
+      }
+    } catch (err) {
+        console.error('Error generating citation:', err);
+        // TODO: Add user-facing error notification
+    } finally {
+        setIsCitationModalOpen(false);
+    }
+  };
+
   // FETCH DOCUMENT
   useEffect(() => {
     if (!user || !editor) return;
@@ -731,6 +827,12 @@ const Editor: React.FC = () => {
             onSubmit={handleGenerateLatex}
             position={latexModalPosition}
         />
+        <CitationModal // <-- ADD THIS
+          isOpen={isCitationModalOpen}
+          onClose={() => setIsCitationModalOpen(false)}
+          onSubmit={handleGenerateCitation}
+          position={citationModalPosition}
+        />
       <PanelGroup direction="horizontal" className="flex-1">
         <Panel defaultSize={75} minSize={50}>
           <div className="flex flex-col h-full">
@@ -769,6 +871,7 @@ const Editor: React.FC = () => {
                 saveStatus={saveStatus}
                 lastSaveTime={lastSaveTime}
                 analysisDuration={analysisDuration}
+                onGenerateCitation={handleOpenCitationModal}
               />
             )}
             

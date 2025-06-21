@@ -101,6 +101,15 @@ function validateRequest(body: any): { valid: boolean; error?: string } {
         return { valid: false, error: 'Prompt length exceeds limit of 1000 characters' };
       }
       break;
+
+    case 'citation':
+    if (!body.query || typeof body.query !== 'string') {
+      return { valid: false, error: 'Missing or invalid query for citation generation' };
+    }
+    if (body.query.length > 1000) {
+      return { valid: false, error: 'Query length exceeds limit of 1000 characters' };
+    }
+      break;
       
     default:
       return { valid: false, error: `Invalid task: ${body.task}` };
@@ -195,6 +204,22 @@ Example JSON Response:
 
 const rewriteSystemPrompt = (action: string) => `You are an AI writing assistant. The user has selected a piece of text and wants to ${action} it. Rewrite the following text accordingly. Respond only with the rewritten text, without any additional commentary or quotation marks.`;
 const latexSystemPrompt = `You are a helpful assistant that specializes in generating LaTeX code for mathematical equations. The user will provide a description of a math equation. Respond ONLY with the raw LaTeX code for that equation. Do not include the '$$' delimiters or any other explaining text.`;
+const citationSystemPrompt = `You are an expert academic librarian and citation specialist. The user will provide a description of a source. Your task is to generate a single, complete BibTeX entry for that source.
+
+- Find the most credible source matching the description.
+- Ensure the BibTeX is complete and well-formatted.
+- Respond ONLY with the raw BibTeX code. Do not include any other explaining text, commentary, or markdown code fences.
+
+Example User Query: "sapiens a brief history of humankind"
+
+Example Response:
+@book{harari2015sapiens,
+  title={Sapiens: A brief history of humankind},
+  author={Harari, Yuval Noah},
+  year={2015},
+  publisher={Harper}
+}`;
+
 
 // --- HANDLERS ---
 
@@ -259,6 +284,24 @@ async function handleLatex(reqBody) {
   return { latex: completion.choices[0].message.content.trim() };
 }
 
+async function handleCitation(reqBody) {
+  const { query } = reqBody;
+  if (!query) {
+    throw new Error("Missing 'query' for citation task.");
+  }
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o',
+    messages: [
+      { role: 'system', content: citationSystemPrompt },
+      { role: 'user', content: query },
+    ],
+    temperature: 0, // Set to 0 for deterministic and accurate output
+  });
+  
+  return { bibtex: completion.choices[0].message.content.trim() };
+}
+
 
 serve(async (req) => {
   const origin = req.headers.get('origin');
@@ -320,6 +363,9 @@ serve(async (req) => {
         break;
       case 'latex':
         data = await handleLatex(body);
+        break;
+      case 'citation':
+        data = await handleCitation(body);
         break;
       default:
         throw new Error(`Invalid task: ${task}`);
